@@ -1,0 +1,10 @@
+.DS_Store
+build/
+*.user
+*.suo
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
