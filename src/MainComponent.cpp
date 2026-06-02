@@ -320,16 +320,16 @@ juce::CodeEditorComponent::ColourScheme MainComponent::SuperColliderCodeTokenise
 {
     juce::CodeEditorComponent::ColourScheme scheme;
     scheme.set("Error", juce::Colour::fromRGB(255, 54, 46));
-    scheme.set("Comment", juce::Colour::fromRGB(94, 118, 98));
-    scheme.set("Keyword", juce::Colour::fromRGB(224, 106, 42));
-    scheme.set("Builtin", juce::Colour::fromRGB(0, 92, 255));
-    scheme.set("Identifier", juce::Colour::fromRGB(18, 20, 22));
-    scheme.set("Number", juce::Colour::fromRGB(188, 131, 0));
-    scheme.set("String", juce::Colour::fromRGB(0, 126, 54));
-    scheme.set("Symbol", juce::Colour::fromRGB(158, 73, 196));
-    scheme.set("Operator", juce::Colour::fromRGB(32, 34, 36));
-    scheme.set("Bracket", juce::Colour::fromRGB(206, 32, 34));
-    scheme.set("Punctuation", juce::Colour::fromRGB(82, 86, 88));
+    scheme.set("Comment", juce::Colour::fromRGB(139, 148, 158));
+    scheme.set("Keyword", juce::Colour::fromRGB(255, 159, 10));
+    scheme.set("Builtin", juce::Colour::fromRGB(90, 170, 255));
+    scheme.set("Identifier", juce::Colour::fromRGB(238, 239, 240));
+    scheme.set("Number", juce::Colour::fromRGB(255, 214, 10));
+    scheme.set("String", juce::Colour::fromRGB(68, 215, 120));
+    scheme.set("Symbol", juce::Colour::fromRGB(191, 142, 255));
+    scheme.set("Operator", juce::Colour::fromRGB(210, 214, 218));
+    scheme.set("Bracket", juce::Colour::fromRGB(255, 105, 97));
+    scheme.set("Punctuation", juce::Colour::fromRGB(184, 188, 192));
     return scheme;
 }
 
@@ -499,7 +499,7 @@ namespace
 constexpr int maximumCompositionStates = 16;
 constexpr int maximumGridsPerState = 8;
 constexpr int outerMargin = 22;
-constexpr int headerHeight = 78;
+constexpr int headerHeight = 96;
 constexpr int headerToTransitionGap = 10;
 constexpr int transitionSplitterThickness = 10;
 constexpr int gridSplitterThickness = 12;
@@ -513,40 +513,12 @@ constexpr double maximumGridTempoRatio = 16.0;
 constexpr float panelRadius = 5.0f;
 constexpr float innerPanelRadius = 3.0f;
 
-[[nodiscard]] juce::Colour lewittPaper() noexcept { return juce::Colour::fromRGB(255, 246, 198); }
-[[nodiscard]] juce::Colour lewittPanel() noexcept { return juce::Colour::fromRGB(255, 252, 235); }
-[[nodiscard]] juce::Colour lewittInk() noexcept { return juce::Colour::fromRGB(18, 20, 22); }
-[[nodiscard]] juce::Colour lewittLine() noexcept { return juce::Colour::fromRGB(32, 34, 36); }
-[[nodiscard]] juce::Colour lewittBlue() noexcept { return juce::Colour::fromRGB(0, 92, 255); }
-[[nodiscard]] juce::Colour lewittRed() noexcept { return juce::Colour::fromRGB(255, 54, 46); }
-[[nodiscard]] juce::Colour lewittYellow() noexcept { return juce::Colour::fromRGB(255, 218, 0); }
-[[nodiscard]] juce::Colour lewittGreen() noexcept { return juce::Colour::fromRGB(0, 190, 78); }
-
-void drawHatch(juce::Graphics& graphics,
-               juce::Rectangle<int> area,
-               const int angleDegrees,
-               const float spacing,
-               const float alpha)
-{
-    if (area.isEmpty())
-        return;
-
-    juce::ignoreUnused(angleDegrees);
-
-    graphics.saveState();
-    graphics.reduceClipRegion(area);
-
-    graphics.setColour(lewittBlue().withAlpha(alpha * 0.70f));
-    const auto step = juce::jmax(12, static_cast<int>(spacing));
-    for (int y = area.getY(); y < area.getBottom(); y += step)
-        graphics.drawHorizontalLine(y, static_cast<float>(area.getX()), static_cast<float>(area.getRight()));
-
-    graphics.setColour(lewittRed().withAlpha(alpha * 0.45f));
-    for (int x = area.getX(); x < area.getRight(); x += step * 2)
-        graphics.drawVerticalLine(x, static_cast<float>(area.getY()), static_cast<float>(area.getBottom()));
-
-    graphics.restoreState();
-}
+[[nodiscard]] juce::Colour lewittPaper() noexcept { return juce::Colour::fromRGB(41, 42, 43); }
+[[nodiscard]] juce::Colour lewittPanel() noexcept { return juce::Colour::fromRGB(55, 56, 57); }
+[[nodiscard]] juce::Colour lewittInk() noexcept { return juce::Colour::fromRGB(238, 239, 240); }
+[[nodiscard]] juce::Colour lewittLine() noexcept { return juce::Colour::fromRGB(116, 119, 122); }
+[[nodiscard]] juce::Colour lewittBlue() noexcept { return juce::Colour::fromRGB(0, 122, 255); }
+[[nodiscard]] juce::Colour lewittGreen() noexcept { return juce::Colour::fromRGB(50, 215, 75); }
 
 void forceBlackEditorText(juce::TextEditor& editor)
 {
@@ -597,18 +569,18 @@ MainComponent::MainComponent()
     gridEditor.addKeyListener(this);
 
     GridEditorComponent::Theme gridTheme;
-    gridTheme.background = lewittPaper();
-    gridTheme.viewportBackground = juce::Colour::fromRGB(255, 254, 238);
-    gridTheme.gridLine = lewittBlue().withAlpha(0.20f);
+    gridTheme.background = juce::Colour::fromRGB(30, 31, 32);
+    gridTheme.viewportBackground = juce::Colour::fromRGB(20, 21, 22);
+    gridTheme.gridLine = juce::Colour::fromRGB(65, 68, 72);
     gridTheme.text = lewittInk();
-    gridTheme.mutedText = lewittInk().withAlpha(0.48f);
-    gridTheme.rulerBackground = lewittYellow().withAlpha(0.50f);
-    gridTheme.rulerText = lewittInk();
-    gridTheme.cursor = lewittRed();
-    gridTheme.cursorText = juce::Colours::white;
-    gridTheme.selection = lewittBlue().withAlpha(0.22f);
-    gridTheme.selectionBorder = lewittRed();
-    gridTheme.playhead = lewittGreen().withAlpha(0.22f);
+    gridTheme.mutedText = lewittInk().withAlpha(0.42f);
+    gridTheme.rulerBackground = juce::Colour::fromRGB(48, 50, 52);
+    gridTheme.rulerText = lewittInk().withAlpha(0.72f);
+    gridTheme.cursor = lewittBlue();
+    gridTheme.cursorText = lewittInk();
+    gridTheme.selection = lewittBlue().withAlpha(0.28f);
+    gridTheme.selectionBorder = lewittBlue().brighter(0.22f);
+    gridTheme.playhead = lewittBlue().withAlpha(0.18f);
     gridEditor.setTheme(gridTheme);
 
     configureOscControls();
@@ -628,6 +600,9 @@ MainComponent::MainComponent()
     configureTransport();
     setAudioChannels(0, 2);
     startTimerHz(30);
+
+    for (auto& meter : mixerMeterPeaks)
+        meter.store(0.0f, std::memory_order_relaxed);
 
     setOpaque(true);
     setSize(1280, 900);
@@ -664,6 +639,17 @@ void MainComponent::menuSaveComposition()
 void MainComponent::menuSaveCompositionAs()
 {
     showSaveCompositionDialog();
+}
+
+void MainComponent::menuShowMainView()
+{
+    mixerViewVisible = false;
+    arrangementViewVisible = false;
+    activeSplitterDrag = SplitterDrag::none;
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+    showActiveLane();
+    resized();
+    repaint();
 }
 
 void MainComponent::menuToggleMixerView()
@@ -764,14 +750,13 @@ void MainComponent::paint(juce::Graphics& graphics)
 
     graphics.setColour(lewittPanel());
     graphics.fillRoundedRectangle(layout.header.toFloat(), panelRadius);
-    drawHatch(graphics, layout.header.reduced(1), headerHatchAngle, 14.0f, 0.045f);
     if (! optionalWorkspaceVisible)
     {
+        graphics.setColour(juce::Colour::fromRGB(35, 36, 37));
         graphics.fillRoundedRectangle(layout.transitionPane.toFloat(), panelRadius);
-        drawHatch(graphics, layout.transitionPane.reduced(1), transitionHatchAngle, 16.0f, 0.035f);
     }
 
-    graphics.setColour(lewittLine());
+    graphics.setColour(lewittLine().withAlpha(0.55f));
     graphics.drawRoundedRectangle(layout.header.toFloat().reduced(0.5f), panelRadius, 1.0f);
     if (! optionalWorkspaceVisible)
         graphics.drawRoundedRectangle(layout.transitionPane.toFloat().reduced(0.5f), panelRadius, 1.0f);
@@ -785,9 +770,9 @@ void MainComponent::paint(juce::Graphics& graphics)
     {
         auto optionalArea = lowerWorkspace;
 
-        graphics.setColour(lewittPanel());
+        graphics.setColour(juce::Colour::fromRGB(35, 36, 37));
         graphics.fillRoundedRectangle(optionalArea.toFloat(), panelRadius);
-        graphics.setColour(lewittLine());
+        graphics.setColour(lewittLine().withAlpha(0.55f));
         graphics.drawRoundedRectangle(optionalArea.toFloat().reduced(0.5f), panelRadius, 1.0f);
     }
     else
@@ -815,36 +800,55 @@ void MainComponent::paint(juce::Graphics& graphics)
         graphics.drawRoundedRectangle(transitionHandle.toFloat().reduced(0.5f), 2.0f, 1.0f);
     }
 
-    auto headerRows = header.reduced(12, 9);
-    auto transportRow = headerRows.removeFromTop(34);
-    headerRows.removeFromTop(5);
-    auto stateRow = headerRows.removeFromTop(24);
+    auto headerGridArea = header.reduced(16, 10);
+    const auto titleColumnWidth = juce::jlimit(190, 252, header.getWidth() / 7);
+    auto titleArea = headerGridArea.removeFromLeft(titleColumnWidth);
+    const int toolbarColumns = 20;
+    const int toolbarRows = 2;
+    const int toolbarGap = 8;
+    const auto squareSize = juce::jmax(20,
+                                       juce::jmin((headerGridArea.getHeight() - toolbarGap) / toolbarRows,
+                                                  (headerGridArea.getWidth() - (toolbarColumns - 1) * toolbarGap) / toolbarColumns));
+    const auto toolbarWidth = toolbarColumns * squareSize + (toolbarColumns - 1) * toolbarGap;
+    const auto toolbarHeight = toolbarRows * squareSize + toolbarGap;
+    const auto toolbarArea = juce::Rectangle<int>(headerGridArea.getX() + juce::jmax(0, (headerGridArea.getWidth() - toolbarWidth) / 2),
+                                                  headerGridArea.getCentreY() - toolbarHeight / 2,
+                                                  toolbarWidth,
+                                                  toolbarHeight);
 
-    graphics.setColour(lewittLine().withAlpha(0.45f));
-    graphics.drawHorizontalLine(stateRow.getY() - 5, static_cast<float>(header.getX() + 12), static_cast<float>(header.getRight() - 12));
+    graphics.setColour(lewittLine().withAlpha(0.24f));
+    for (int row = 0; row < toolbarRows; ++row)
+    {
+        for (int column = 0; column < toolbarColumns; ++column)
+        {
+            const auto cell = juce::Rectangle<int>(toolbarArea.getX() + column * (squareSize + toolbarGap),
+                                                   toolbarArea.getY() + row * (squareSize + toolbarGap),
+                                                   squareSize,
+                                                   squareSize);
+            graphics.drawRoundedRectangle(cell.toFloat().reduced(0.5f), 4.0f, 1.0f);
+        }
+    }
 
     graphics.setColour(lewittInk());
-    graphics.setFont(juce::FontOptions(22.0f, juce::Font::bold));
-    graphics.drawText("GridCollider", transportRow.removeFromLeft(220), juce::Justification::centredLeft);
+    graphics.setFont(juce::FontOptions(23.0f, juce::Font::bold));
+    graphics.drawText("GridCollider", titleArea, juce::Justification::centredLeft);
 
-    auto readoutArea = transportRow.removeFromRight(juce::jlimit(300, 430, transportRow.getWidth() / 2));
-    auto pulseArea = readoutArea.removeFromRight(22).toFloat();
+    const auto pulseCell = juce::Rectangle<int>(toolbarArea.getX() + 10 * (squareSize + toolbarGap),
+                                                toolbarArea.getY(),
+                                                squareSize,
+                                                squareSize).toFloat();
     const auto elapsed = juce::Time::getMillisecondCounterHiRes() - lastPulseTimeMs;
     const auto pulseAlpha = transportEngine.isPlaying()
                                 ? juce::jlimit(0.25f, 1.0f, 1.0f - static_cast<float>(elapsed / 180.0))
                                 : 0.18f;
 
-    graphics.setColour(lewittInk().withAlpha(pulseAlpha));
-    graphics.fillRect(pulseArea.withSizeKeepingCentre(8.0f, 8.0f));
-
-    graphics.setColour(lewittInk());
-    graphics.setFont(juce::FontOptions(14.0f));
-    graphics.drawFittedText(getTransportStateText(), readoutArea, juce::Justification::centredRight, 1);
+    graphics.setColour((transportEngine.isPlaying() ? lewittGreen() : lewittInk()).withAlpha(pulseAlpha));
+    graphics.fillEllipse(pulseCell.withSizeKeepingCentre(8.0f, 8.0f));
 
     if (! optionalWorkspaceVisible)
     {
         auto transitionHeader = layout.transitionPane.reduced(10, 0).removeFromTop(26);
-        graphics.setColour(lewittLine().withAlpha(0.45f));
+        graphics.setColour(lewittLine().withAlpha(0.36f));
         graphics.drawHorizontalLine(transitionHeader.getBottom(), static_cast<float>(transitionHeader.getX()), static_cast<float>(transitionHeader.getRight()));
     }
 
@@ -944,71 +948,59 @@ void MainComponent::resized()
         }
     }
 
-    auto headerRows = header.reduced(12, 9);
-    auto transportRow = headerRows.removeFromTop(34);
-    headerRows.removeFromTop(5);
-    auto stateRow = headerRows.removeFromTop(24);
+    auto headerGridArea = header.reduced(16, 10);
+    const auto titleColumnWidth = juce::jlimit(190, 252, header.getWidth() / 7);
+    headerGridArea.removeFromLeft(titleColumnWidth);
+    const int toolbarColumns = 20;
+    const int toolbarRows = 2;
+    const int toolbarGap = 8;
+    const auto squareSize = juce::jmax(20,
+                                       juce::jmin((headerGridArea.getHeight() - toolbarGap) / toolbarRows,
+                                                  (headerGridArea.getWidth() - (toolbarColumns - 1) * toolbarGap) / toolbarColumns));
+    const auto toolbarWidth = toolbarColumns * squareSize + (toolbarColumns - 1) * toolbarGap;
+    const auto toolbarHeight = toolbarRows * squareSize + toolbarGap;
+    const auto toolbarArea = juce::Rectangle<int>(headerGridArea.getX() + juce::jmax(0, (headerGridArea.getWidth() - toolbarWidth) / 2),
+                                                  headerGridArea.getCentreY() - toolbarHeight / 2,
+                                                  toolbarWidth,
+                                                  toolbarHeight);
+    const auto cell = [toolbarArea, squareSize](const int column, const int row, const int span = 1)
+    {
+        return juce::Rectangle<int>(toolbarArea.getX() + column * (squareSize + toolbarGap),
+                                    toolbarArea.getY() + row * (squareSize + toolbarGap),
+                                    span * squareSize + (span - 1) * toolbarGap,
+                                    squareSize);
+    };
 
-    juce::Rectangle<int> titleArea = transportRow.removeFromLeft(216);
-    const auto topControlHeight = 30;
-    playPauseButton.setBounds(transportRow.removeFromLeft(72).withSizeKeepingCentre(72, topControlHeight));
-    transportRow.removeFromLeft(8);
-    stopButton.setBounds(transportRow.removeFromLeft(56).withSizeKeepingCentre(56, topControlHeight));
-    transportRow.removeFromLeft(8);
-    resetButton.setBounds(transportRow.removeFromLeft(64).withSizeKeepingCentre(64, topControlHeight));
-    transportRow.removeFromLeft(20);
-    bpmLabel.setBounds(transportRow.removeFromLeft(34).withSizeKeepingCentre(34, 24));
-    bpmEditor.setBounds(transportRow.removeFromLeft(64).withSizeKeepingCentre(64, topControlHeight));
-    transportRow.removeFromLeft(18);
-    stateTimeSignatureLabel.setBounds(transportRow.removeFromLeft(30).withSizeKeepingCentre(30, 24));
-    transportRow.removeFromLeft(5);
-    stateTimeSignatureNumeratorEditor.setBounds(transportRow.removeFromLeft(30).withSizeKeepingCentre(30, 24));
-    stateTimeSignatureSeparatorLabel.setBounds(transportRow.removeFromLeft(10).withSizeKeepingCentre(10, 24));
-    stateTimeSignatureDenominatorEditor.setBounds(transportRow.removeFromLeft(30).withSizeKeepingCentre(30, 24));
-    transportRow.removeFromLeft(10);
-    juce::ignoreUnused(titleArea);
+    playPauseButton.setBounds(cell(0, 0, 2));
+    stopButton.setBounds(cell(2, 0, 2));
+    resetButton.setBounds(cell(4, 0, 2));
+    bpmEditor.setBounds(cell(6, 0, 2));
+    stateTimeSignatureNumeratorEditor.setBounds(cell(8, 0));
+    stateTimeSignatureDenominatorEditor.setBounds(cell(9, 0));
+    bpmLabel.setBounds({});
+    stateTimeSignatureLabel.setBounds({});
+    stateTimeSignatureSeparatorLabel.setBounds({});
 
-    stateRow.removeFromLeft(216);
-    auto rightStateRow = stateRow.removeFromRight(452);
-    const auto rowControlHeight = 22;
-
-    gridSizeLabel.setBounds(rightStateRow.removeFromLeft(42).withSizeKeepingCentre(42, rowControlHeight));
-    rightStateRow.removeFromLeft(4);
-    gridColumnsEditor.setBounds(rightStateRow.removeFromLeft(42).withSizeKeepingCentre(42, rowControlHeight));
-    gridSizeSeparatorLabel.setBounds(rightStateRow.removeFromLeft(14).withSizeKeepingCentre(14, rowControlHeight));
-    gridRowsEditor.setBounds(rightStateRow.removeFromLeft(42).withSizeKeepingCentre(42, rowControlHeight));
-    rightStateRow.removeFromLeft(14);
-    laneKindButton.setBounds(rightStateRow.removeFromLeft(56).withSizeKeepingCentre(56, rowControlHeight));
-    rightStateRow.removeFromLeft(12);
-    phaseModeButton.setBounds(rightStateRow.removeFromLeft(68).withSizeKeepingCentre(68, rowControlHeight));
-    rightStateRow.removeFromLeft(6);
-    phaseOffsetEditor.setBounds(rightStateRow.removeFromLeft(44).withSizeKeepingCentre(44, rowControlHeight));
-    rightStateRow.removeFromLeft(12);
-    gridRatioLabel.setBounds(rightStateRow.removeFromLeft(26).withSizeKeepingCentre(26, rowControlHeight));
-    gridRatioEditor.setBounds(rightStateRow.removeFromLeft(54).withSizeKeepingCentre(54, rowControlHeight));
-
-    stateRow.removeFromRight(18);
-    stateSlotLabel.setBounds(stateRow.removeFromLeft(82).withSizeKeepingCentre(82, rowControlHeight));
-    stateRow.removeFromLeft(6);
-    previousStateButton.setBounds(stateRow.removeFromLeft(26).withSizeKeepingCentre(26, rowControlHeight));
-    stateRow.removeFromLeft(5);
-    nextStateButton.setBounds(stateRow.removeFromLeft(26).withSizeKeepingCentre(26, rowControlHeight));
-    stateRow.removeFromLeft(5);
-    addStateButton.setBounds(stateRow.removeFromLeft(26).withSizeKeepingCentre(26, rowControlHeight));
-    stateRow.removeFromLeft(16);
-    stateAdvanceLabel.setBounds(stateRow.removeFromLeft(34).withSizeKeepingCentre(34, rowControlHeight));
-    stateRow.removeFromLeft(6);
-    stateAdvanceModeButton.setBounds(stateRow.removeFromLeft(78).withSizeKeepingCentre(78, rowControlHeight));
-    stateRow.removeFromLeft(6);
-    stateAdvanceIntervalEditor.setBounds(stateRow.removeFromLeft(38).withSizeKeepingCentre(38, rowControlHeight));
-    stateRow.removeFromLeft(16);
-    gridSlotLabel.setBounds(stateRow.removeFromLeft(78).withSizeKeepingCentre(78, rowControlHeight));
-    stateRow.removeFromLeft(6);
-    previousGridButton.setBounds(stateRow.removeFromLeft(26).withSizeKeepingCentre(26, rowControlHeight));
-    stateRow.removeFromLeft(5);
-    nextGridButton.setBounds(stateRow.removeFromLeft(26).withSizeKeepingCentre(26, rowControlHeight));
-    stateRow.removeFromLeft(5);
-    addGridButton.setBounds(stateRow.removeFromLeft(26).withSizeKeepingCentre(26, rowControlHeight));
+    stateSlotLabel.setBounds(cell(0, 1));
+    stateAdvanceLabel.setBounds(cell(1, 1));
+    previousStateButton.setBounds(cell(2, 1));
+    nextStateButton.setBounds(cell(3, 1));
+    addStateButton.setBounds(cell(4, 1));
+    stateAdvanceModeButton.setBounds(cell(5, 1, 2));
+    stateAdvanceIntervalEditor.setBounds(cell(7, 1));
+    gridSlotLabel.setBounds(cell(8, 1));
+    gridRatioLabel.setBounds(cell(9, 1));
+    previousGridButton.setBounds(cell(10, 1));
+    nextGridButton.setBounds(cell(11, 1));
+    addGridButton.setBounds(cell(12, 1));
+    gridColumnsEditor.setBounds(cell(13, 1));
+    gridRowsEditor.setBounds(cell(14, 1));
+    laneKindButton.setBounds(cell(15, 1));
+    phaseModeButton.setBounds(cell(16, 1, 2));
+    phaseOffsetEditor.setBounds(cell(18, 1));
+    gridRatioEditor.setBounds(cell(19, 1));
+    gridSizeLabel.setBounds({});
+    gridSizeSeparatorLabel.setBounds({});
 
     for (auto* component : { static_cast<juce::Component*>(&loadPatternButton),
                              static_cast<juce::Component*>(&savePatternButton),
@@ -1223,6 +1215,20 @@ void MainComponent::timerCallback()
         repaint(0, 0, getWidth(), 92);
         repaint(0, juce::jmax(0, getHeight() - 76), getWidth(), 76);
     }
+
+    bool metersChanged = false;
+    for (auto& meter : mixerMeterPeaks)
+    {
+        const auto value = meter.load(std::memory_order_relaxed);
+        if (value <= 0.0001f)
+            continue;
+
+        meter.store(juce::jmax(0.0f, value * 0.88f - 0.003f), std::memory_order_relaxed);
+        metersChanged = true;
+    }
+
+    if (mixerViewVisible && metersChanged)
+        refreshMixerMeters();
 }
 
 void MainComponent::prepareToPlay(const int samplesPerBlockExpected, const double sampleRate)
@@ -1252,6 +1258,18 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
     audioCallbackCounter.fetch_add(1, std::memory_order_relaxed);
     audioSampleCounter.fetch_add(static_cast<std::uint64_t>(bufferToFill.numSamples), std::memory_order_relaxed);
     embeddedScAudio.render(output);
+
+    float peak = 0.0f;
+    for (int channel = 0; channel < output.getNumChannels(); ++channel)
+        peak = juce::jmax(peak, output.getMagnitude(channel, 0, output.getNumSamples()));
+
+    if (peak > 0.0f)
+    {
+        auto& meter = mixerMeterPeaks[static_cast<std::size_t>(maximumMixerChannels - 1)];
+        const auto current = meter.load(std::memory_order_relaxed);
+        if (peak > current)
+            meter.store(juce::jlimit(0.0f, 1.0f, peak), std::memory_order_relaxed);
+    }
 }
 
 void MainComponent::releaseResources()
@@ -1303,8 +1321,8 @@ void MainComponent::configureOscControls()
 
 void MainComponent::styleOscControls()
 {
-    const auto background = lewittPaper();
-    const auto outline = lewittLine();
+    const auto background = juce::Colour::fromRGB(46, 47, 48);
+    const auto outline = lewittLine().withAlpha(0.58f);
     const auto text = lewittInk();
 
     for (auto* editor : { &oscHostEditor, &oscPortEditor })
@@ -1474,11 +1492,11 @@ void MainComponent::configurePatternControls()
 
 void MainComponent::stylePatternButton(juce::TextButton& button)
 {
-    button.setColour(juce::TextButton::buttonColourId, lewittPanel().brighter(0.08f));
-    button.setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.35f));
+    button.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(48, 49, 50));
+    button.setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
     button.setColour(juce::TextButton::textColourOffId, lewittInk());
-    button.setColour(juce::TextButton::textColourOnId, lewittInk());
-    button.setColour(juce::ComboBox::outlineColourId, lewittLine());
+    button.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    button.setColour(juce::ComboBox::outlineColourId, lewittLine().withAlpha(0.62f));
 }
 
 void MainComponent::showLoadCompositionDialog()
@@ -1991,12 +2009,12 @@ void MainComponent::configureTransitionCodePane()
 void MainComponent::styleTransitionCodePane()
 {
     transitionCodeLabel.setColour(juce::Label::textColourId, lewittInk());
-    transitionCodeEditor.setColour(juce::CodeEditorComponent::backgroundColourId, juce::Colour::fromRGB(255, 252, 235));
+    transitionCodeEditor.setColour(juce::CodeEditorComponent::backgroundColourId, juce::Colour::fromRGB(24, 25, 26));
     transitionCodeEditor.setColour(juce::CodeEditorComponent::defaultTextColourId, lewittInk());
-    transitionCodeEditor.setColour(juce::CodeEditorComponent::highlightColourId, lewittYellow().withAlpha(0.42f));
-    transitionCodeEditor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, juce::Colour::fromRGB(248, 242, 216));
+    transitionCodeEditor.setColour(juce::CodeEditorComponent::highlightColourId, lewittBlue().withAlpha(0.34f));
+    transitionCodeEditor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, juce::Colour::fromRGB(34, 35, 36));
     transitionCodeEditor.setColour(juce::CodeEditorComponent::lineNumberTextId, lewittInk().withAlpha(0.42f));
-    transitionCodeEditor.setColour(juce::ScrollBar::backgroundColourId, lewittPanel().withAlpha(0.35f));
+    transitionCodeEditor.setColour(juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB(35, 36, 37));
     transitionCodeEditor.setColour(juce::ScrollBar::thumbColourId, lewittBlue());
     transitionCodeEditor.setColourScheme(scCodeTokeniser.getDefaultColourScheme());
 }
@@ -2045,7 +2063,9 @@ juce::String MainComponent::createDefaultTransitionCode(const int stateNumber) c
     return "// TRANSITIONS.SC - State "
         + juce::String(stateNumber)
         + "\n// This state owns this rule. States are 1-based.\n"
-          "// Use a linear edge, weighted edges, or leave maps empty.\n\n"
+          "// Use linear edges, weighted edges, cycles, trigger exits, or leave maps empty.\n"
+          "// Conditions may read: state, tick, beat, bar, frame, trigger.\n"
+          "// Example condition: when: \"bar % 4 == 0\"\n\n"
           "~linear = (\n"
           "    "
         + juce::String(stateNumber)
@@ -2059,10 +2079,24 @@ juce::String MainComponent::createDefaultTransitionCode(const int stateNumber) c
         + ": [\n"
           "    //     (to: "
         + juce::String(nextState)
-        + ", chance: 0.70),\n"
+        + ", chance: 0.70, when: \"bar % 4 == 0\"),\n"
           "    //     (to: "
         + juce::String(stateNumber)
         + ", chance: 0.30)\n"
+          "    // ]\n"
+          ");\n\n"
+          "~cycle = [\n"
+          "    // 1, 2, 3, 4\n"
+          "];\n\n"
+          "~trigger = (\n"
+          "    // fill: "
+        + juce::String(nextState)
+        + ",\n"
+          "    // drop: [\n"
+          "    //     (to: "
+        + juce::String(nextState)
+        + ", chance: 0.60),\n"
+          "    //     (to: 1, chance: 0.40)\n"
           "    // ]\n"
           ");\n";
 }
@@ -2082,9 +2116,9 @@ void MainComponent::configureEventMonitor()
     eventMonitor.setScrollbarsShown(false);
     eventMonitor.setCaretVisible(false);
     eventMonitor.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
-    eventMonitor.setColour(juce::TextEditor::backgroundColourId, lewittPaper());
-    eventMonitor.setColour(juce::TextEditor::outlineColourId, lewittLine());
-    eventMonitor.setColour(juce::TextEditor::focusedOutlineColourId, lewittLine());
+    eventMonitor.setColour(juce::TextEditor::backgroundColourId, juce::Colour::fromRGB(24, 25, 26));
+    eventMonitor.setColour(juce::TextEditor::outlineColourId, lewittLine().withAlpha(0.58f));
+    eventMonitor.setColour(juce::TextEditor::focusedOutlineColourId, lewittBlue());
     eventMonitor.setColour(juce::TextEditor::textColourId, lewittInk());
     eventMonitor.setColour(juce::TextEditor::highlightColourId, lewittBlue().withAlpha(0.35f));
 }
@@ -2251,6 +2285,28 @@ void MainComponent::refreshStateGraph()
                     transitions.push_back({ fromIndex, toIndex, choice.chance, true });
             }
         }
+
+        for (int cycleIndex = 0; cycleIndex < static_cast<int>(rules.cycle.size()); ++cycleIndex)
+        {
+            const auto fromIndex = rules.cycle[static_cast<std::size_t>(cycleIndex)] - 1;
+            const auto toIndex = rules.cycle[static_cast<std::size_t>((cycleIndex + 1) % static_cast<int>(rules.cycle.size()))] - 1;
+
+            if (fromIndex >= 0 && fromIndex < stateCount && toIndex >= 0 && toIndex < stateCount)
+                transitions.push_back({ fromIndex, toIndex, 1.0, false });
+        }
+
+        for (const auto& [triggerName, choices] : rules.triggers)
+        {
+            juce::ignoreUnused(triggerName);
+
+            for (const auto& choice : choices)
+            {
+                const auto toIndex = choice.targetState - 1;
+
+                if (stateIndex >= 0 && stateIndex < stateCount && toIndex >= 0 && toIndex < stateCount)
+                    transitions.push_back({ stateIndex, toIndex, choice.chance, true });
+            }
+        }
     }
 
     stateGraph.setStates(std::move(views), activeStateIndex, transportEngine.isPlaying());
@@ -2268,6 +2324,14 @@ juce::String MainComponent::getStateAdvanceModeText(const CompositionState::Adva
     }
 
     return "MANUAL";
+}
+
+static juce::String compactStateAdvanceModeText(const juce::String& text)
+{
+    if (text == "BEATS")   return "BEAT";
+    if (text == "BARS")    return "BAR";
+    if (text == "TRIGGER") return "TRG";
+    return "MAN";
 }
 
 void MainComponent::toggleSelectedStateAdvanceMode()
@@ -2373,7 +2437,7 @@ void MainComponent::updateStateAdvanceControls()
     }
 
     stateAdvanceModeButton.setEnabled(hasState);
-    stateAdvanceModeButton.setButtonText(getStateAdvanceModeText(mode));
+    stateAdvanceModeButton.setButtonText(compactStateAdvanceModeText(getStateAdvanceModeText(mode)));
     stateAdvanceIntervalEditor.setEnabled(hasState
                                           && mode != CompositionState::AdvanceMode::manual
                                           && mode != CompositionState::AdvanceMode::trigger);
@@ -2389,16 +2453,16 @@ void MainComponent::updateStateAdvanceControls()
 
 void MainComponent::styleTransportControls()
 {
-    const auto background = lewittPanel().brighter(0.08f);
+    const auto background = juce::Colour::fromRGB(48, 49, 50);
     const auto text = lewittInk();
-    const auto outline = lewittLine();
+    const auto outline = lewittLine().withAlpha(0.62f);
 
     for (auto* button : { &playPauseButton, &stopButton, &resetButton })
     {
         button->setColour(juce::TextButton::buttonColourId, background);
-        button->setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.35f));
+        button->setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
         button->setColour(juce::TextButton::textColourOffId, text);
-        button->setColour(juce::TextButton::textColourOnId, text);
+        button->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
         button->setColour(juce::ComboBox::outlineColourId, outline);
     }
 
@@ -2420,9 +2484,9 @@ void MainComponent::styleTransportControls()
 
 void MainComponent::updateTransportControls()
 {
-    playPauseButton.setButtonText(transportEngine.isPlaying() ? "PAUSE" : "PLAY");
+    playPauseButton.setButtonText(transportEngine.isPlaying() ? "PAUS" : "PLAY");
     stopButton.setButtonText("STOP");
-    resetButton.setButtonText("RESET");
+    resetButton.setButtonText("RST");
     bpmEditor.setText(juce::String(transportEngine.getBpm(), 1), juce::dontSendNotification);
     forceBlackEditorText(bpmEditor);
 }
@@ -2514,11 +2578,11 @@ void MainComponent::configureMixerView()
 
         label.setJustificationType(juce::Justification::centred);
         level.setSliderStyle(juce::Slider::LinearVertical);
-        level.setTextBoxStyle(juce::Slider::TextBoxAbove, false, 54, 18);
+        level.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 46, 18);
         level.setRange(0.0, 1.25, 0.01);
         level.setValue(1.0, juce::dontSendNotification);
 
-        pan.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        pan.setSliderStyle(juce::Slider::LinearHorizontal);
         pan.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         pan.setRange(-1.0, 1.0, 0.01);
         pan.setValue(0.0, juce::dontSendNotification);
@@ -2548,10 +2612,10 @@ void MainComponent::configureMixerView()
 
 void MainComponent::styleMixerControls()
 {
-    const auto mixerInk = juce::Colour::fromRGB(238, 238, 232);
-    const auto mixerDark = juce::Colour::fromRGB(42, 42, 41);
-    const auto mixerMuted = juce::Colour::fromRGB(156, 156, 150);
-    const auto mixerBlue = juce::Colour::fromRGB(80, 142, 215);
+    const auto mixerInk = juce::Colour::fromRGB(238, 239, 240);
+    const auto mixerPaper = juce::Colour::fromRGB(42, 43, 42);
+    const auto mixerLine = juce::Colour::fromRGB(20, 21, 22);
+    const auto mixerBlue = juce::Colour::fromRGB(95, 192, 239);
 
     mixerLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold));
     mixerLabel.setColour(juce::Label::textColourId, mixerInk);
@@ -2564,25 +2628,25 @@ void MainComponent::styleMixerControls()
         auto& mute = mixerMuteButtons[static_cast<std::size_t>(index)];
         auto& solo = mixerSoloButtons[static_cast<std::size_t>(index)];
 
-        label.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold));
+        label.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::bold));
         label.setColour(juce::Label::textColourId, mixerInk);
-        level.setColour(juce::Slider::backgroundColourId, mixerDark);
-        level.setColour(juce::Slider::trackColourId, mixerMuted);
-        level.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(214, 214, 208));
+        level.setColour(juce::Slider::backgroundColourId, mixerLine.withAlpha(0.32f));
+        level.setColour(juce::Slider::trackColourId, mixerBlue);
+        level.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(220, 222, 224));
         level.setColour(juce::Slider::textBoxTextColourId, mixerInk);
-        level.setColour(juce::Slider::textBoxBackgroundColourId, mixerDark);
-        level.setColour(juce::Slider::textBoxOutlineColourId, mixerDark);
-        pan.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour::fromRGB(116, 232, 128));
-        pan.setColour(juce::Slider::rotarySliderOutlineColourId, mixerDark);
-        pan.setColour(juce::Slider::thumbColourId, mixerInk);
+        level.setColour(juce::Slider::textBoxBackgroundColourId, mixerPaper);
+        level.setColour(juce::Slider::textBoxOutlineColourId, juce::Colour::fromRGB(120, 123, 126).withAlpha(0.72f));
+        pan.setColour(juce::Slider::backgroundColourId, mixerLine.withAlpha(0.28f));
+        pan.setColour(juce::Slider::trackColourId, mixerBlue);
+        pan.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(220, 222, 224));
 
         for (auto* button : { &mute, &solo })
         {
-            button->setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(78, 78, 76));
+            button->setColour(juce::TextButton::buttonColourId, mixerPaper);
             button->setColour(juce::TextButton::buttonOnColourId, mixerBlue);
             button->setColour(juce::TextButton::textColourOffId, mixerInk);
             button->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-            button->setColour(juce::ComboBox::outlineColourId, mixerDark);
+            button->setColour(juce::ComboBox::outlineColourId, mixerLine);
         }
     }
 }
@@ -2652,14 +2716,22 @@ void MainComponent::refreshMixerView()
     masterMixerControlIndex = static_cast<int>(channels.size()) - 1;
 
     const auto channelCount = juce::jmax(1, static_cast<int>(channels.size()));
-    const auto stripWidth = 104;
-    const auto contentHeight = juce::jmax(620, mixerViewport.getHeight());
-    const auto contentWidth = juce::jmax(36 + channelCount * stripWidth, mixerViewport.getWidth());
+    const auto stripWidth = 86;
+    const auto contentHeight = juce::jmax(520, mixerViewport.getHeight());
+    const auto contentWidth = juce::jmax(20 + channelCount * stripWidth, mixerViewport.getWidth());
     mixerContent.setBounds(0, 0, contentWidth, contentHeight);
     std::vector<MixerContentComponent::Strip> strips;
     strips.reserve(channels.size());
     for (const auto& channel : channels)
-        strips.push_back({ channel.label, channel.output, channel.colour, channel.master });
+    {
+        const auto meterIndex = channel.master
+                                    ? maximumMixerChannels - 1
+                                    : channel.state * maximumGridsPerState + channel.lane;
+        const auto meter = meterIndex >= 0 && meterIndex < maximumMixerChannels
+                               ? mixerMeterPeaks[static_cast<std::size_t>(meterIndex)].load(std::memory_order_relaxed)
+                               : 0.0f;
+        strips.push_back({ channel.label, channel.output, channel.colour, channel.master, meter });
+    }
     mixerContent.setStrips(std::move(strips), stripWidth, contentHeight);
     mixerLabel.setBounds({});
 
@@ -2672,23 +2744,27 @@ void MainComponent::refreshMixerView()
         auto& mute = mixerMuteButtons[static_cast<std::size_t>(index)];
         auto& solo = mixerSoloButtons[static_cast<std::size_t>(index)];
 
-        label.setVisible(visible && ! channels[static_cast<std::size_t>(index)].master);
+        label.setVisible(false);
         level.setVisible(visible);
         pan.setVisible(visible && ! channels[static_cast<std::size_t>(index)].master);
-        mute.setVisible(visible && ! channels[static_cast<std::size_t>(index)].master);
-        solo.setVisible(visible && ! channels[static_cast<std::size_t>(index)].master);
+        mute.setVisible(false);
+        solo.setVisible(false);
 
         if (! visible)
             continue;
 
         const auto& channel = channels[static_cast<std::size_t>(index)];
-        const auto x = 18 + index * stripWidth;
-        label.setText("PAN", juce::dontSendNotification);
-        label.setBounds(x + 28, 132, stripWidth - 62, 16);
-        pan.setBounds(x + 31, 148, 42, 42);
-        level.setBounds(x + 26, 214, 50, contentHeight - 338);
-        mute.setBounds(x + 18, contentHeight - 102, 30, 22);
-        solo.setBounds(x + 52, contentHeight - 102, 30, 22);
+        const auto x = 10 + index * stripWidth;
+        const auto stripBounds = juce::Rectangle<int>(x, 10, stripWidth - 8, juce::jmax(380, contentHeight - 20));
+        const auto panY = stripBounds.getY() + 87;
+        const auto faderTop = stripBounds.getY() + (channel.master ? 88 : 124);
+        const auto faderBottom = stripBounds.getBottom() - 74;
+        pan.setBounds(stripBounds.getX() + 11, panY, stripBounds.getWidth() - 22, 20);
+        level.setBounds(stripBounds.getCentreX() - 23, faderTop, 46, juce::jmax(180, faderBottom - faderTop));
+        mute.setBounds({});
+        solo.setBounds({});
+        level.setColour(juce::Slider::trackColourId, channel.colour.withAlpha(0.76f));
+        pan.setColour(juce::Slider::trackColourId, channel.colour.withAlpha(0.78f));
         level.setValue(channel.level, juce::dontSendNotification);
         pan.setValue(channel.pan, juce::dontSendNotification);
 
@@ -2708,6 +2784,31 @@ void MainComponent::refreshMixerView()
             };
         }
     }
+}
+
+void MainComponent::refreshMixerMeters()
+{
+    std::vector<float> meters;
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        for (int stateIndex = 0; stateIndex < static_cast<int>(compositionStates.size()); ++stateIndex)
+        {
+            const auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+
+            for (int laneIndex = 0; laneIndex < static_cast<int>(state.grids.size()); ++laneIndex)
+            {
+                const auto meterIndex = stateIndex * maximumGridsPerState + laneIndex;
+                meters.push_back(meterIndex >= 0 && meterIndex < maximumMixerChannels
+                                     ? mixerMeterPeaks[static_cast<std::size_t>(meterIndex)].load(std::memory_order_relaxed)
+                                     : 0.0f);
+            }
+        }
+    }
+
+    meters.push_back(mixerMeterPeaks[static_cast<std::size_t>(maximumMixerChannels - 1)].load(std::memory_order_relaxed));
+    mixerContent.setMeters(meters);
 }
 
 void MainComponent::configureArrangementView()
@@ -2817,6 +2918,28 @@ void MainComponent::refreshArrangementView()
                     edges.push_back({ fromIndex, toIndex, choice.chance, true });
             }
         }
+
+        for (int cycleIndex = 0; cycleIndex < static_cast<int>(rules.cycle.size()); ++cycleIndex)
+        {
+            const auto fromIndex = rules.cycle[static_cast<std::size_t>(cycleIndex)] - 1;
+            const auto toIndex = rules.cycle[static_cast<std::size_t>((cycleIndex + 1) % static_cast<int>(rules.cycle.size()))] - 1;
+
+            if (fromIndex >= 0 && fromIndex < stateCount && toIndex >= 0 && toIndex < stateCount)
+                edges.push_back({ fromIndex, toIndex, 1.0, false });
+        }
+
+        for (const auto& [triggerName, choices] : rules.triggers)
+        {
+            juce::ignoreUnused(triggerName);
+
+            for (const auto& choice : choices)
+            {
+                const auto toIndex = choice.targetState - 1;
+
+                if (stateIndex >= 0 && stateIndex < stateCount && toIndex >= 0 && toIndex < stateCount)
+                    edges.push_back({ stateIndex, toIndex, choice.chance, true });
+            }
+        }
     }
 
     const auto contentWidth = juce::jmax(arrangementViewport.getWidth(), 920);
@@ -2857,13 +2980,15 @@ void MainComponent::applyMasterLevel()
     embeddedScAudio.setMasterLevel(masterLevel);
 }
 
-void MainComponent::applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane) const
+void MainComponent::applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane, const float transitionGain) const
 {
+    const auto level = juce::jlimit(0.0f, 1.25f, lane.mixerLevel * transitionGain);
+
     for (auto& event : events)
     {
-        std::visit([&lane](auto& typed)
+        std::visit([&lane, level](auto& typed)
         {
-            typed.fields.velocity = juce::jlimit(0.0f, 1.0f, typed.fields.velocity * lane.mixerLevel);
+            typed.fields.velocity = juce::jlimit(0.0f, 1.0f, typed.fields.velocity * level);
             typed.fields.parameters["pan"] = juce::String(lane.mixerPan, 3);
         }, event);
     }
@@ -2911,21 +3036,21 @@ void MainComponent::configureLaneCodePane()
 
 void MainComponent::styleLaneCodePane()
 {
-    laneScCodeEditor.setColour(juce::CodeEditorComponent::backgroundColourId, juce::Colour::fromRGB(255, 252, 235));
+    laneScCodeEditor.setColour(juce::CodeEditorComponent::backgroundColourId, juce::Colour::fromRGB(24, 25, 26));
     laneScCodeEditor.setColour(juce::CodeEditorComponent::defaultTextColourId, lewittInk());
-    laneScCodeEditor.setColour(juce::CodeEditorComponent::highlightColourId, lewittYellow().withAlpha(0.42f));
-    laneScCodeEditor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, juce::Colour::fromRGB(248, 242, 216));
+    laneScCodeEditor.setColour(juce::CodeEditorComponent::highlightColourId, lewittBlue().withAlpha(0.34f));
+    laneScCodeEditor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, juce::Colour::fromRGB(34, 35, 36));
     laneScCodeEditor.setColour(juce::CodeEditorComponent::lineNumberTextId, lewittInk().withAlpha(0.42f));
-    laneScCodeEditor.setColour(juce::ScrollBar::backgroundColourId, lewittPanel().withAlpha(0.35f));
+    laneScCodeEditor.setColour(juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB(35, 36, 37));
     laneScCodeEditor.setColour(juce::ScrollBar::thumbColourId, lewittBlue());
     laneScCodeEditor.setColourScheme(scCodeTokeniser.getDefaultColourScheme());
 }
 
 void MainComponent::styleGridSlotControls()
 {
-    const auto background = lewittPanel().brighter(0.08f);
+    const auto background = juce::Colour::fromRGB(48, 49, 50);
     const auto text = lewittInk();
-    const auto outline = lewittLine();
+    const auto outline = lewittLine().withAlpha(0.62f);
 
     for (auto* label : { &stateSlotLabel, &stateAdvanceLabel, &stateTimeSignatureLabel, &stateTimeSignatureSeparatorLabel,
                          &gridSlotLabel, &gridRatioLabel, &gridSizeLabel, &gridSizeSeparatorLabel })
@@ -2935,22 +3060,27 @@ void MainComponent::styleGridSlotControls()
         label->setColour(juce::Label::textColourId, text);
     }
 
+    stateSlotLabel.setJustificationType(juce::Justification::centred);
+    stateAdvanceLabel.setJustificationType(juce::Justification::centred);
+    gridSlotLabel.setJustificationType(juce::Justification::centred);
+    gridRatioLabel.setJustificationType(juce::Justification::centred);
+
     for (auto* button : { &previousStateButton, &nextStateButton, &addStateButton,
                           &stateAdvanceModeButton, &previousGridButton, &nextGridButton, &addGridButton, &phaseModeButton, &laneKindButton })
     {
         button->setColour(juce::TextButton::buttonColourId, background);
-        button->setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.35f));
+        button->setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
         button->setColour(juce::TextButton::textColourOffId, text);
-        button->setColour(juce::TextButton::textColourOnId, text);
+        button->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
         button->setColour(juce::ComboBox::outlineColourId, outline);
     }
 
     for (auto& button : gridTabButtons)
     {
-        button.setColour(juce::TextButton::buttonColourId, lewittPanel().withAlpha(0.70f));
-        button.setColour(juce::TextButton::buttonOnColourId, lewittInk().withAlpha(0.14f));
+        button.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(42, 43, 44));
+        button.setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
         button.setColour(juce::TextButton::textColourOffId, text);
-        button.setColour(juce::TextButton::textColourOnId, text);
+        button.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
         button.setColour(juce::ComboBox::outlineColourId, outline);
     }
 
@@ -2960,7 +3090,7 @@ void MainComponent::styleGridSlotControls()
         editor->setJustification(juce::Justification::centred);
         editor->setColour(juce::TextEditor::backgroundColourId, background);
         editor->setColour(juce::TextEditor::outlineColourId, outline);
-        editor->setColour(juce::TextEditor::focusedOutlineColourId, lewittYellow());
+        editor->setColour(juce::TextEditor::focusedOutlineColourId, lewittBlue());
         editor->setColour(juce::TextEditor::highlightColourId, lewittBlue().withAlpha(0.35f));
         forceBlackEditorText(*editor);
     }
@@ -2971,7 +3101,7 @@ void MainComponent::styleGridSlotControls()
         editor->setJustification(juce::Justification::centred);
         editor->setColour(juce::TextEditor::backgroundColourId, background);
         editor->setColour(juce::TextEditor::outlineColourId, outline);
-        editor->setColour(juce::TextEditor::focusedOutlineColourId, lewittRed());
+        editor->setColour(juce::TextEditor::focusedOutlineColourId, lewittBlue());
         editor->setColour(juce::TextEditor::highlightColourId, lewittBlue().withAlpha(0.35f));
         forceBlackEditorText(*editor);
     }
@@ -2982,7 +3112,7 @@ void MainComponent::styleGridSlotControls()
         editor->setJustification(juce::Justification::centred);
         editor->setColour(juce::TextEditor::backgroundColourId, background);
         editor->setColour(juce::TextEditor::outlineColourId, outline);
-        editor->setColour(juce::TextEditor::focusedOutlineColourId, lewittRed());
+        editor->setColour(juce::TextEditor::focusedOutlineColourId, lewittBlue());
         editor->setColour(juce::TextEditor::textColourId, text);
         editor->setColour(juce::TextEditor::highlightColourId, lewittBlue().withAlpha(0.35f));
     }
@@ -2995,14 +3125,16 @@ void MainComponent::updateGridSlotControls()
 
         if (compositionStates.empty())
         {
-            stateSlotLabel.setText("STATE 0/0", juce::dontSendNotification);
-            gridSlotLabel.setText("GRID 0/0", juce::dontSendNotification);
+            stateSlotLabel.setText("S", juce::dontSendNotification);
+            stateAdvanceLabel.setText("0/0", juce::dontSendNotification);
+            gridSlotLabel.setText("L", juce::dontSendNotification);
+            gridRatioLabel.setText("0/0", juce::dontSendNotification);
             previousStateButton.setEnabled(false);
             nextStateButton.setEnabled(false);
             addStateButton.setEnabled(true);
             stateAdvanceModeButton.setEnabled(false);
             stateAdvanceIntervalEditor.setEnabled(false);
-            stateAdvanceModeButton.setButtonText("MANUAL");
+            stateAdvanceModeButton.setButtonText("MAN");
             stateAdvanceIntervalEditor.setText("4", juce::dontSendNotification);
             stateTimeSignatureNumeratorEditor.setEnabled(false);
             stateTimeSignatureDenominatorEditor.setEnabled(false);
@@ -3019,7 +3151,7 @@ void MainComponent::updateGridSlotControls()
             phaseOffsetEditor.setText("0", juce::dontSendNotification);
             gridColumnsEditor.setText(juce::String(GridModel::defaultWidth), juce::dontSendNotification);
             gridRowsEditor.setText(juce::String(GridModel::defaultHeight), juce::dontSendNotification);
-            phaseModeButton.setButtonText("SYNC");
+            phaseModeButton.setButtonText("SYN");
 
             for (auto& button : gridTabButtons)
             {
@@ -3039,26 +3171,28 @@ void MainComponent::updateGridSlotControls()
         activeGridSlot = juce::jlimit(0, static_cast<int>(state.grids.size()) - 1, activeGridSlot);
         const auto& grid = state.grids[static_cast<std::size_t>(activeGridSlot)];
 
-        stateSlotLabel.setText("STATE " + juce::String(activeStateIndex + 1) + "/" + juce::String(static_cast<int>(compositionStates.size())),
-                               juce::dontSendNotification);
+        stateSlotLabel.setText("S", juce::dontSendNotification);
+        stateAdvanceLabel.setText(juce::String(activeStateIndex + 1) + "/" + juce::String(static_cast<int>(compositionStates.size())),
+                                  juce::dontSendNotification);
         const auto laneIsGrid = grid.kind == CompositionGrid::Kind::grid;
-        gridSlotLabel.setText("LANE " + juce::String(activeGridSlot + 1) + "/" + juce::String(static_cast<int>(state.grids.size())),
-                              juce::dontSendNotification);
+        gridSlotLabel.setText("L", juce::dontSendNotification);
+        gridRatioLabel.setText(juce::String(activeGridSlot + 1) + "/" + juce::String(static_cast<int>(state.grids.size())),
+                               juce::dontSendNotification);
         gridRatioEditor.setText(juce::String(grid.tempoRatio, 1), juce::dontSendNotification);
         phaseOffsetEditor.setText(juce::String(grid.phaseOffsetDegrees, 0), juce::dontSendNotification);
         forceBlackEditorText(gridRatioEditor);
         forceBlackEditorText(phaseOffsetEditor);
         gridColumnsEditor.setText(juce::String(grid.snapshot.width), juce::dontSendNotification);
         gridRowsEditor.setText(juce::String(grid.snapshot.height), juce::dontSendNotification);
-        laneKindButton.setButtonText(laneIsGrid ? "GRID" : "SC");
-        stateAdvanceModeButton.setButtonText(getStateAdvanceModeText(state.advanceMode));
+        laneKindButton.setButtonText(laneIsGrid ? "G" : "SC");
+        stateAdvanceModeButton.setButtonText(compactStateAdvanceModeText(getStateAdvanceModeText(state.advanceMode)));
         stateAdvanceIntervalEditor.setText(juce::String(state.advanceInterval), juce::dontSendNotification);
         stateTimeSignatureNumeratorEditor.setText(juce::String(state.timeSignatureNumerator), juce::dontSendNotification);
         stateTimeSignatureDenominatorEditor.setText(juce::String(state.timeSignatureDenominator), juce::dontSendNotification);
         forceBlackEditorText(stateAdvanceIntervalEditor);
         forceBlackEditorText(stateTimeSignatureNumeratorEditor);
         forceBlackEditorText(stateTimeSignatureDenominatorEditor);
-        phaseModeButton.setButtonText(grid.phaseOffsetEnabled ? "OFFSET" : "SYNC");
+        phaseModeButton.setButtonText(grid.phaseOffsetEnabled ? "OFF" : "SYN");
         phaseModeButton.setToggleState(grid.phaseOffsetEnabled, juce::dontSendNotification);
 
         const auto canSwitchState = compositionStates.size() > 1;
@@ -3288,7 +3422,7 @@ void MainComponent::showActiveLane()
     gridEditor.setVisible(showGrid);
     laneCodeBackdrop.setVisible(false);
     laneScCodeEditor.setVisible(! showGrid);
-    laneKindButton.setButtonText(showGrid ? "GRID" : "SC");
+    laneKindButton.setButtonText(showGrid ? "G" : "SC");
 
     if (showGrid)
     {
@@ -3949,39 +4083,48 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
         }
 
         bool shouldAdvance = false;
-
-        if (context.isBeat && mode == CompositionState::AdvanceMode::beats)
+        TransitionContext transitionContext;
+        transitionContext.frame = context.frame;
+        transitionContext.state = currentState;
+        transitionContext.stateFrame = context.frame >= stateEntryFrame ? context.frame - stateEntryFrame : 0;
+        transitionContext.beat = static_cast<int>(transitionContext.stateFrame / static_cast<std::uint64_t>(juce::jmax(1, context.ticksPerBeat)));
         {
-            const auto elapsedFrames = context.frame >= stateEntryFrame ? context.frame - stateEntryFrame : 0;
-            const auto elapsedBeats = elapsedFrames / static_cast<std::uint64_t>(juce::jmax(1, context.ticksPerBeat));
-            shouldAdvance = elapsedBeats >= static_cast<std::uint64_t>(interval);
-        }
-        else if (context.isBeat && mode == CompositionState::AdvanceMode::bars)
-        {
-            const auto elapsedFrames = context.frame >= stateEntryFrame ? context.frame - stateEntryFrame : 0;
             const auto quarterBeatsPerBar = static_cast<double>(timeSignatureNumerator) * 4.0
                                             / static_cast<double>(juce::jmax(1, timeSignatureDenominator));
             const auto framesPerBar = static_cast<double>(juce::jmax(1, context.ticksPerBeat)) * quarterBeatsPerBar;
-            shouldAdvance = framesPerBar > 0.0
-                             && static_cast<double>(elapsedFrames) >= framesPerBar * static_cast<double>(interval);
+            transitionContext.bar = framesPerBar > 0.0
+                                        ? static_cast<int>(std::floor(static_cast<double>(transitionContext.stateFrame) / framesPerBar))
+                                        : 0;
+        }
+
+        if (context.isBeat && mode == CompositionState::AdvanceMode::beats)
+        {
+            shouldAdvance = transitionContext.beat >= interval;
+        }
+        else if (context.isBeat && mode == CompositionState::AdvanceMode::bars)
+        {
+            shouldAdvance = transitionContext.bar >= interval;
         }
 
         if (shouldAdvance)
         {
             const auto rules = parseTransitionRules(transitionCode);
-            const auto targetState = chooseTransitionTarget(rules, currentState);
-
-            if (targetState != currentState)
+            if (! rules.linear.empty() || ! rules.weighted.empty() || ! rules.cycle.empty() || ! rules.triggers.empty())
             {
-                double stateBpm = context.bpm;
+                const auto targetState = chooseTransitionTarget(rules, currentState, transitionContext);
 
-                if (applyTransitionTargetForTransport(targetState, context.frame, stateBpm))
-                    transportEngine.setBpm(stateBpm);
-            }
-            else
-            {
-                const std::lock_guard lock(gridRuntimeMutex);
-                activeStateEntryFrame = context.frame;
+                if (targetState > 0 && targetState != currentState)
+                {
+                    double stateBpm = context.bpm;
+
+                    if (applyTransitionTargetForTransport(targetState, context.frame, stateBpm))
+                        transportEngine.setBpm(stateBpm);
+                }
+                else if (targetState == currentState)
+                {
+                    const std::lock_guard lock(gridRuntimeMutex);
+                    activeStateEntryFrame = context.frame;
+                }
             }
         }
     }
@@ -4001,6 +4144,15 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
         state.grids.push_back({ makeEmptyGridSnapshot() });
 
     activeGridSlot = juce::jlimit(0, static_cast<int>(state.grids.size()) - 1, activeGridSlot);
+    const auto transitionGain = [&context, stateFrame]
+    {
+        if (stateFrame >= static_cast<std::uint64_t>(juce::jmax(1, context.ticksPerBeat)))
+            return 1.0f;
+
+        const auto firstBeatPosition = static_cast<float>(stateFrame)
+                                       / static_cast<float>(juce::jmax(1, context.ticksPerBeat));
+        return juce::jlimit(0.68f, 1.0f, 0.68f + firstBeatPosition * 0.32f);
+    }();
 
     for (int index = 0; index < static_cast<int>(state.grids.size()); ++index)
     {
@@ -4022,7 +4174,29 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
         if (evaluation.grid.width > 0 && evaluation.grid.height > 0)
             grid.snapshot = evaluation.grid;
 
-        applyLaneMixToEvents(evaluation.events, grid);
+        applyLaneMixToEvents(evaluation.events, grid, transitionGain);
+
+        float lanePeak = 0.0f;
+        for (const auto& event : evaluation.events)
+        {
+            std::visit([&lanePeak](const auto& typed)
+            {
+                lanePeak = juce::jmax(lanePeak, typed.fields.velocity);
+            }, event);
+        }
+
+        if (lanePeak > 0.0f)
+        {
+            const auto meterIndex = activeStateIndex * maximumGridsPerState + index;
+            if (meterIndex >= 0 && meterIndex < maximumMixerChannels - 1)
+            {
+                auto& meter = mixerMeterPeaks[static_cast<std::size_t>(meterIndex)];
+                const auto current = meter.load(std::memory_order_relaxed);
+                if (lanePeak > current)
+                    meter.store(juce::jlimit(0.0f, 1.0f, lanePeak), std::memory_order_relaxed);
+            }
+        }
+
         combined.events.insert(combined.events.end(), evaluation.events.begin(), evaluation.events.end());
 
         if (index == activeGridSlot)
@@ -4053,6 +4227,7 @@ void MainComponent::toggleTransportPlayback()
     }
     else
     {
+        compileScLanesForAllStates();
         transportEngine.start();
         statusLog.append("Transport running");
     }
@@ -4118,6 +4293,40 @@ MainComponent::TransitionRules MainComponent::parseTransitionRules(juce::String 
 
     const auto source = uncommented.toStdString();
     std::smatch blockMatch;
+    const auto parseChoiceBlock = [](const std::string& choicesBlock)
+    {
+        std::vector<TransitionChoice> choices;
+        const std::regex tuplePattern(R"(\(([\s\S]*?)\))");
+        const std::regex toPattern(R"(to\s*:\s*(\d+))");
+        const std::regex chancePattern(R"(chance\s*:\s*([0-9]*\.?[0-9]+))");
+        const std::regex whenPattern("when\\s*:\\s*\"([^\"]+)\"");
+
+        for (auto choiceIterator = std::sregex_iterator(choicesBlock.begin(), choicesBlock.end(), tuplePattern);
+             choiceIterator != std::sregex_iterator();
+             ++choiceIterator)
+        {
+            const auto tuple = (*choiceIterator)[1].str();
+            std::smatch fieldMatch;
+
+            if (! std::regex_search(tuple, fieldMatch, toPattern))
+                continue;
+
+            const auto to = juce::String(fieldMatch[1].str()).getIntValue();
+            auto chance = 1.0;
+            juce::String condition;
+
+            if (std::regex_search(tuple, fieldMatch, chancePattern))
+                chance = juce::String(fieldMatch[1].str()).getDoubleValue();
+
+            if (std::regex_search(tuple, fieldMatch, whenPattern))
+                condition = juce::String(fieldMatch[1].str()).trim();
+
+            if (to > 0 && chance > 0.0)
+                choices.push_back({ to, chance, condition });
+        }
+
+        return choices;
+    };
 
     if (std::regex_search(source, blockMatch, std::regex(R"(~linear\s*=\s*\(([\s\S]*?)\);)")))
     {
@@ -4140,7 +4349,6 @@ MainComponent::TransitionRules MainComponent::parseTransitionRules(juce::String 
     {
         const auto block = blockMatch[1].str();
         const std::regex statePattern(R"((\d+)\s*:\s*\[([\s\S]*?)\])");
-        const std::regex choicePattern(R"(to\s*:\s*(\d+)\s*,\s*chance\s*:\s*([0-9]*\.?[0-9]+))");
 
         for (auto stateIterator = std::sregex_iterator(block.begin(), block.end(), statePattern);
              stateIterator != std::sregex_iterator();
@@ -4148,57 +4356,193 @@ MainComponent::TransitionRules MainComponent::parseTransitionRules(juce::String 
         {
             const auto from = juce::String((*stateIterator)[1].str()).getIntValue();
             const auto choicesBlock = (*stateIterator)[2].str();
-            std::vector<TransitionChoice> choices;
-
-            for (auto choiceIterator = std::sregex_iterator(choicesBlock.begin(), choicesBlock.end(), choicePattern);
-                 choiceIterator != std::sregex_iterator();
-                 ++choiceIterator)
-            {
-                const auto to = juce::String((*choiceIterator)[1].str()).getIntValue();
-                const auto chance = juce::String((*choiceIterator)[2].str()).getDoubleValue();
-
-                if (to > 0 && chance > 0.0)
-                    choices.push_back({ to, chance });
-            }
+            auto choices = parseChoiceBlock(choicesBlock);
 
             if (from > 0 && ! choices.empty())
                 rules.weighted[from] = std::move(choices);
         }
     }
 
+    if (std::regex_search(source, blockMatch, std::regex(R"(~cycle\s*=\s*\[([\s\S]*?)\]\s*;)")))
+    {
+        const auto block = blockMatch[1].str();
+        const std::regex numberPattern(R"(\d+)");
+
+        for (auto iterator = std::sregex_iterator(block.begin(), block.end(), numberPattern);
+             iterator != std::sregex_iterator();
+             ++iterator)
+        {
+            const auto state = juce::String((*iterator)[0].str()).getIntValue();
+
+            if (state > 0)
+                rules.cycle.push_back(state);
+        }
+    }
+
+    if (std::regex_search(source, blockMatch, std::regex(R"(~trigger\s*=\s*\(([\s\S]*?)\);)")))
+    {
+        const auto block = blockMatch[1].str();
+        const std::regex weightedTriggerPattern(R"(([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*\[([\s\S]*?)\])");
+        const std::regex simpleTriggerPattern(R"(([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(\d+))");
+
+        for (auto iterator = std::sregex_iterator(block.begin(), block.end(), weightedTriggerPattern);
+             iterator != std::sregex_iterator();
+             ++iterator)
+        {
+            const auto name = juce::String((*iterator)[1].str()).trim().toLowerCase();
+            auto choices = parseChoiceBlock((*iterator)[2].str());
+
+            if (name.isNotEmpty() && ! choices.empty())
+                rules.triggers[name] = std::move(choices);
+        }
+
+        const auto simpleOnlyBlock = std::regex_replace(block, weightedTriggerPattern, "");
+
+        for (auto iterator = std::sregex_iterator(simpleOnlyBlock.begin(), simpleOnlyBlock.end(), simpleTriggerPattern);
+             iterator != std::sregex_iterator();
+             ++iterator)
+        {
+            const auto name = juce::String((*iterator)[1].str()).trim().toLowerCase();
+            const auto target = juce::String((*iterator)[2].str()).getIntValue();
+
+            if (name.isNotEmpty() && target > 0 && rules.triggers.find(name) == rules.triggers.end())
+                rules.triggers[name] = { { target, 1.0, {} } };
+        }
+    }
+
     return rules;
 }
 
-int MainComponent::chooseTransitionTarget(const TransitionRules& rules, const int currentState)
+bool MainComponent::transitionConditionMatches(juce::String condition, const TransitionContext& context) const
 {
-    if (const auto weighted = rules.weighted.find(currentState); weighted != rules.weighted.end())
+    condition = condition.trim();
+    const auto normalized = condition.toLowerCase();
+
+    if (condition.isEmpty() || normalized == "true")
+        return true;
+
+    if (normalized == "false")
+        return false;
+
+    if (condition.startsWithIgnoreCase("trigger"))
+    {
+        const auto equals = condition.indexOf("==");
+        if (equals < 0)
+            return false;
+
+        auto wanted = condition.substring(equals + 2).trim();
+
+        if (wanted.length() >= 2 && wanted.startsWithChar('"') && wanted.endsWithChar('"'))
+            wanted = wanted.substring(1, wanted.length() - 1);
+
+        wanted = wanted.toLowerCase();
+        return wanted == context.triggerName.toLowerCase();
+    }
+
+    const auto source = condition.toStdString();
+    const std::regex comparisonPattern(R"((state|tick|beat|bar|frame)\s*(?:%\s*(\d+)\s*)?(==|!=|>=|<=|>|<)\s*(-?\d+))");
+    std::smatch match;
+
+    if (! std::regex_match(source, match, comparisonPattern))
+        return false;
+
+    const auto name = juce::String(match[1].str());
+    auto left = 0LL;
+
+    if (name == "state")
+        left = context.state;
+    else if (name == "tick")
+        left = static_cast<long long>(context.stateFrame);
+    else if (name == "frame")
+        left = static_cast<long long>(context.frame);
+    else if (name == "beat")
+        left = context.beat;
+    else if (name == "bar")
+        left = context.bar;
+
+    const auto modulo = juce::String(match[2].str()).getLargeIntValue();
+    if (modulo > 0)
+        left %= modulo;
+
+    const auto op = juce::String(match[3].str());
+    const auto right = juce::String(match[4].str()).getLargeIntValue();
+
+    if (op == "==") return left == right;
+    if (op == "!=") return left != right;
+    if (op == ">=") return left >= right;
+    if (op == "<=") return left <= right;
+    if (op == ">")  return left > right;
+    if (op == "<")  return left < right;
+
+    return false;
+}
+
+int MainComponent::chooseTransitionTarget(const TransitionRules& rules, const int currentState, const TransitionContext& context)
+{
+    auto chooseFromChoices = [this, &context](const std::vector<TransitionChoice>& choices)
     {
         double total = 0.0;
+        int lastMatchingTarget = 0;
 
-        for (const auto& choice : weighted->second)
-            total += juce::jmax(0.0, choice.chance);
-
-        if (total > 0.0)
+        for (const auto& choice : choices)
         {
-            const auto roll = transitionRandom.nextDouble() * total;
-            double sum = 0.0;
-
-            for (const auto& choice : weighted->second)
+            if (transitionConditionMatches(choice.condition, context))
             {
-                sum += juce::jmax(0.0, choice.chance);
-
-                if (roll <= sum)
-                    return choice.targetState;
+                total += juce::jmax(0.0, choice.chance);
+                lastMatchingTarget = choice.targetState;
             }
-
-            return weighted->second.back().targetState;
         }
+
+        if (total <= 0.0)
+            return 0;
+
+        const auto roll = transitionRandom.nextDouble() * total;
+        double sum = 0.0;
+
+        for (const auto& choice : choices)
+        {
+            if (! transitionConditionMatches(choice.condition, context))
+                continue;
+
+            sum += juce::jmax(0.0, choice.chance);
+
+            if (roll <= sum)
+                return choice.targetState;
+        }
+
+        return lastMatchingTarget;
+    };
+
+    if (context.triggerName.isNotEmpty())
+    {
+        if (const auto trigger = rules.triggers.find(context.triggerName.toLowerCase()); trigger != rules.triggers.end())
+        {
+            const auto target = chooseFromChoices(trigger->second);
+            if (target > 0)
+                return target;
+        }
+    }
+
+    if (const auto weighted = rules.weighted.find(currentState); weighted != rules.weighted.end())
+    {
+        const auto target = chooseFromChoices(weighted->second);
+        if (target > 0)
+            return target;
     }
 
     if (const auto linear = rules.linear.find(currentState); linear != rules.linear.end())
         return linear->second;
 
-    return currentState;
+    if (! rules.cycle.empty())
+    {
+        for (int index = 0; index < static_cast<int>(rules.cycle.size()); ++index)
+        {
+            if (rules.cycle[static_cast<std::size_t>(index)] == currentState)
+                return rules.cycle[static_cast<std::size_t>((index + 1) % static_cast<int>(rules.cycle.size()))];
+        }
+    }
+
+    return 0;
 }
 
 void MainComponent::applyTransitionTarget(const int targetState)
@@ -4296,6 +4640,9 @@ void MainComponent::advanceStateFromTransitionPane(const TransportEngine::TickRe
 
     CompositionState::AdvanceMode mode = CompositionState::AdvanceMode::manual;
     int currentState = 1;
+    std::uint64_t stateEntryFrame = 0;
+    int timeSignatureNumerator = 4;
+    int timeSignatureDenominator = 4;
     juce::String transitionCode;
 
     {
@@ -4310,11 +4657,28 @@ void MainComponent::advanceStateFromTransitionPane(const TransportEngine::TickRe
         const auto stateIndex = juce::jlimit(0, static_cast<int>(compositionStates.size()) - 1, activeStateIndex);
         const auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
         currentState = stateIndex + 1;
+        stateEntryFrame = activeStateEntryFrame;
         mode = state.advanceMode;
+        timeSignatureNumerator = juce::jlimit(1, 32, state.timeSignatureNumerator);
+        timeSignatureDenominator = juce::jlimit(1, 32, state.timeSignatureDenominator);
         transitionCode = state.transitionCode;
     }
 
     bool shouldAdvance = false;
+    const auto rules = parseTransitionRules(transitionCode);
+    TransitionContext transitionContext;
+    transitionContext.frame = result.context.frame;
+    transitionContext.state = currentState;
+    transitionContext.stateFrame = result.context.frame >= stateEntryFrame ? result.context.frame - stateEntryFrame : 0;
+    transitionContext.beat = static_cast<int>(transitionContext.stateFrame / static_cast<std::uint64_t>(juce::jmax(1, result.context.ticksPerBeat)));
+    {
+        const auto quarterBeatsPerBar = static_cast<double>(timeSignatureNumerator) * 4.0
+                                        / static_cast<double>(juce::jmax(1, timeSignatureDenominator));
+        const auto framesPerBar = static_cast<double>(juce::jmax(1, result.context.ticksPerBeat)) * quarterBeatsPerBar;
+        transitionContext.bar = framesPerBar > 0.0
+                                    ? static_cast<int>(std::floor(static_cast<double>(transitionContext.stateFrame) / framesPerBar))
+                                    : 0;
+    }
 
     switch (mode)
     {
@@ -4332,9 +4696,11 @@ void MainComponent::advanceStateFromTransitionPane(const TransportEngine::TickRe
                 if (const auto* trigger = std::get_if<TriggerEvent>(&event))
                 {
                     const auto name = trigger->triggerName.trim().toLowerCase();
+                    const auto hasNamedRoute = rules.triggers.find(name) != rules.triggers.end();
 
-                    if (name == "advance" || name == "next" || name == "transition")
+                    if (name == "advance" || name == "next" || name == "transition" || hasNamedRoute)
                     {
+                        transitionContext.triggerName = name;
                         shouldAdvance = true;
                         break;
                     }
@@ -4348,21 +4714,19 @@ void MainComponent::advanceStateFromTransitionPane(const TransportEngine::TickRe
     if (! shouldAdvance)
         return;
 
-    const auto rules = parseTransitionRules(transitionCode);
-
-    if (rules.linear.empty() && rules.weighted.empty())
+    if (rules.linear.empty() && rules.weighted.empty() && rules.cycle.empty() && rules.triggers.empty())
         return;
 
-    const auto targetState = chooseTransitionTarget(rules, currentState);
+    const auto targetState = chooseTransitionTarget(rules, currentState, transitionContext);
 
-    if (targetState != currentState)
+    if (targetState > 0 && targetState != currentState)
     {
         double stateBpm = result.context.bpm;
 
         if (applyTransitionTargetForTransport(targetState, result.context.frame, stateBpm))
             transportEngine.setBpm(stateBpm);
     }
-    else
+    else if (targetState == currentState)
     {
         const std::lock_guard lock(gridRuntimeMutex);
         activeStateEntryFrame = result.context.frame;

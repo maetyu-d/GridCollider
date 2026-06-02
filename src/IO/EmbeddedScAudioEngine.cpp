@@ -148,7 +148,7 @@ juce::String starterSynthSource(const juce::String& name)
 
 juce::String masterSynthSource()
 {
-    return "SynthDef(\\gcMaster, { |inBus = 16, out = 0, master = 0.9, drive = 1.15| var sig; sig = In.ar(inBus, 2); sig = LeakDC.ar(sig); sig = (sig * drive).tanh; sig = Limiter.ar(sig, 0.98, 0.01) * master; Out.ar(out, sig); })";
+    return "SynthDef(\\gcMaster, { |inBus = 16, out = 0, master = 0.9, drive = 0.88| var sig; sig = In.ar(inBus, 2); sig = LeakDC.ar(sig); sig = (sig * drive).tanh; sig = Limiter.ar(sig, 0.96, 0.02) * master; Out.ar(out, sig); })";
 }
 
 void debugLog(const juce::String& message)
@@ -166,31 +166,6 @@ juce::String instrumentFor(const juce::String& name)
     if (name == "kick" || name == "snare" || name == "hat" || name == "bass" || name == "tone" || name == "grain" || name == "drone")
         return name;
     return "tone";
-}
-
-juce::String instrumentForTarget(const EventFields& fields)
-{
-    const auto target = fields.targetAddress.value_or(fields.instrumentName).toLowerCase();
-
-    if (target == "master" || target == "/master" || target == "gcmaster")
-        return "master";
-
-    if (target.endsWith("/0"))
-        return "tone";
-    if (target.endsWith("/1"))
-        return "bass";
-    if (target.endsWith("/2"))
-        return "drone";
-    if (target.endsWith("/3"))
-        return "grain";
-    if (target.endsWith("/9"))
-        return "kick";
-    if (target.endsWith("/10"))
-        return "snare";
-    if (target.endsWith("/11"))
-        return "hat";
-
-    return instrumentFor(fields.instrumentName);
 }
 
 float defaultLevelFor(const juce::String& instrument)
@@ -437,6 +412,7 @@ struct EmbeddedScAudioEngine::Impl
             sendPacket(buildOscMessage("/d_recv", { OscArgument::blob(std::move(bytes)) }));
         }
 
+        registerSynthName(name);
         debugLog("loaded SynthDef " + name);
         return true;
     }
@@ -570,6 +546,7 @@ private:
 
         debugLog("compiled SynthDef gcMaster (" + juce::String(static_cast<int>(masterBytes.size())) + " bytes)");
         sendPacket(buildOscMessage("/d_recv", { OscArgument::blob(std::move(masterBytes)) }));
+        registerSynthName("gcMaster");
 
         for (const auto& name : { "kick", "snare", "hat", "bass", "tone", "grain", "drone" })
         {
@@ -579,6 +556,7 @@ private:
 
             debugLog("compiled SynthDef " + juce::String(name) + " (" + juce::String(static_cast<int>(bytes.size())) + " bytes)");
             sendPacket(buildOscMessage("/d_recv", { OscArgument::blob(std::move(bytes)) }));
+            registerSynthName(name);
         }
 
         prime();
@@ -638,7 +616,7 @@ private:
     std::vector<char> packetFor(const NoteEvent& event)
     {
         const auto& fields = event.fields;
-        const auto synth = instrumentForTarget(fields);
+        const auto synth = synthForTarget(fields);
         const auto nodeId = nextNodeId++;
         const auto duration = secondsForTicks(fields.durationTicks, bpm.load(std::memory_order_relaxed));
         const auto velocity = juce::jlimit(0.0f, 1.0f, fields.velocity);
@@ -670,7 +648,7 @@ private:
     std::vector<char> packetFor(const TriggerEvent& event)
     {
         const auto trigger = event.triggerName.toLowerCase();
-        const auto synth = instrumentFor(trigger);
+        const auto synth = synthForName(trigger);
         const auto nodeId = nextNodeId++;
         const auto level = levelFor(synth);
         auto pan = panForX(event.fields.sourceCell.column);
@@ -701,7 +679,7 @@ private:
     {
         std::vector<std::vector<char>> packets;
         const auto parameter = normalisedControlParameter(event.parameterName);
-        const auto instrument = instrumentForTarget(event.fields);
+        const auto instrument = synthForTarget(event.fields);
         const auto value = juce::jlimit(0.0f, 1.0f, event.value);
 
         if (instrument == "master" || parameter == "master")
@@ -716,7 +694,7 @@ private:
 
         if (parameter == "drive")
         {
-            masterDrive = 0.75f + value * 2.0f;
+            masterDrive = 0.65f + value * 1.35f;
             packets.push_back(buildOscMessage("/n_set",
                                               { OscArgument::integer(masterNodeId),
                                                 OscArgument::string("drive"),
@@ -746,6 +724,56 @@ private:
         }
 
         return packets;
+    }
+
+    void registerSynthName(const juce::String& name)
+    {
+        const auto trimmed = name.trim();
+
+        if (trimmed.isNotEmpty())
+            loadedSynthNames[trimmed.toLowerCase()] = trimmed;
+    }
+
+    juce::String synthForName(const juce::String& name) const
+    {
+        const auto target = name.trim().toLowerCase();
+
+        if (const auto iter = loadedSynthNames.find(target); iter != loadedSynthNames.end())
+            return iter->second;
+
+        return instrumentFor(target);
+    }
+
+    juce::String synthForTarget(const EventFields& fields) const
+    {
+        const auto target = fields.targetAddress.value_or(fields.instrumentName).trim().toLowerCase();
+
+        if (target == "master" || target == "/master" || target == "gcmaster")
+            return "master";
+
+        if (const auto iter = loadedSynthNames.find(target); iter != loadedSynthNames.end())
+            return iter->second;
+
+        const auto instrument = fields.instrumentName.trim().toLowerCase();
+        if (const auto iter = loadedSynthNames.find(instrument); iter != loadedSynthNames.end())
+            return iter->second;
+
+        if (target.endsWith("/0"))
+            return synthForName("tone");
+        if (target.endsWith("/1"))
+            return synthForName("bass");
+        if (target.endsWith("/2"))
+            return synthForName("drone");
+        if (target.endsWith("/3"))
+            return synthForName("grain");
+        if (target.endsWith("/9"))
+            return synthForName("kick");
+        if (target.endsWith("/10"))
+            return synthForName("snare");
+        if (target.endsWith("/11"))
+            return synthForName("hat");
+
+        return synthForName(fields.instrumentName);
     }
 
     float levelFor(const juce::String& instrument)
@@ -834,8 +862,9 @@ private:
         nextNodeId = 10000;
         activeNodeByInstrument.clear();
         instrumentLevels.clear();
+        loadedSynthNames.clear();
         masterLevel = 0.9f;
-        masterDrive = 1.15f;
+        masterDrive = 0.88f;
     }
 
     mutable juce::CriticalSection engineLock;
@@ -849,6 +878,7 @@ private:
     std::vector<std::vector<char>> queuedScratch;
     std::map<juce::String, std::int32_t> activeNodeByInstrument;
     std::map<juce::String, float> instrumentLevels;
+    std::map<juce::String, juce::String> loadedSynthNames;
     std::atomic<bool> ready { false };
     std::atomic<double> bpm { 120.0 };
     std::atomic<std::uint64_t> tick { 0 };
@@ -858,7 +888,7 @@ private:
     std::atomic<int> sentEventCount { 0 };
     std::int32_t nextNodeId = 10000;
     float masterLevel = 0.9f;
-    float masterDrive = 1.15f;
+    float masterDrive = 0.88f;
     double currentSampleRate = 0.0;
     int maxBlockSize = 0;
     int numOutputChannels = 0;

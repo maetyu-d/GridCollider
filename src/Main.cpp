@@ -36,7 +36,7 @@ private:
     public:
         explicit MainWindow(const juce::String& name)
             : DocumentWindow(name,
-                             juce::Colour::fromRGB(10, 12, 10),
+                             juce::Colour::fromRGB(28, 29, 30),
                              DocumentWindow::allButtons)
         {
             setUsingNativeTitleBar(true);
@@ -85,8 +85,12 @@ private:
             }
             else if (menuIndex == 1)
             {
-                menu.addItem(10, "Mixer", true, mainComponent != nullptr && mainComponent->isMixerViewVisible());
-                menu.addItem(11, "Arrangement", true, mainComponent != nullptr && mainComponent->isArrangementViewVisible());
+                const auto mixerVisible = mainComponent != nullptr && mainComponent->isMixerViewVisible();
+                const auto arrangementVisible = mainComponent != nullptr && mainComponent->isArrangementViewVisible();
+                menu.addItem(9, "Main", true, mainComponent != nullptr && ! mixerVisible && ! arrangementVisible);
+                menu.addSeparator();
+                menu.addItem(10, "Mixer", true, mixerVisible);
+                menu.addItem(11, "Arrangement", true, arrangementVisible);
             }
             else if (menuIndex == 2)
             {
@@ -122,6 +126,8 @@ private:
                 mainComponent->menuSaveComposition();
             else if (menuItemID == 3)
                 mainComponent->menuSaveCompositionAs();
+            else if (menuItemID == 9)
+                mainComponent->menuShowMainView();
             else if (menuItemID == 10)
                 mainComponent->menuToggleMixerView();
             else if (menuItemID == 11)

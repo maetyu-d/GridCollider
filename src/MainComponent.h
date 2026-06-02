@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <array>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <map>
@@ -36,6 +37,7 @@ public:
     void menuLoadComposition();
     void menuSaveComposition();
     void menuSaveCompositionAs();
+    void menuShowMainView();
     void menuToggleMixerView();
     void menuToggleArrangementView();
     void menuLoadExample(const juce::File& file);
@@ -115,6 +117,7 @@ private:
             juce::String output;
             juce::Colour colour;
             bool master = false;
+            float meter = 0.0f;
         };
 
         MixerContentComponent() { setOpaque(true); }
@@ -127,77 +130,108 @@ private:
             repaint();
         }
 
+        void setMeters(const std::vector<float>& meters)
+        {
+            const auto count = juce::jmin(static_cast<int>(strips.size()), static_cast<int>(meters.size()));
+
+            for (int index = 0; index < count; ++index)
+                strips[static_cast<std::size_t>(index)].meter = juce::jlimit(0.0f, 1.0f, meters[static_cast<std::size_t>(index)]);
+
+            if (count > 0)
+                repaint();
+        }
+
         void paint(juce::Graphics& graphics) override
         {
-            const auto background = juce::Colour::fromRGB(84, 84, 82);
-            const auto strip = juce::Colour::fromRGB(96, 96, 94);
-            const auto dark = juce::Colour::fromRGB(48, 48, 47);
-            const auto slot = juce::Colour::fromRGB(72, 72, 70);
-            const auto ink = juce::Colour::fromRGB(238, 238, 232);
-            const auto muted = juce::Colour::fromRGB(185, 185, 178);
+            const auto paper = juce::Colour::fromRGB(42, 43, 42);
+            const auto strip = juce::Colour::fromRGB(87, 88, 85);
+            const auto ink = juce::Colour::fromRGB(242, 242, 236);
+            const auto line = juce::Colour::fromRGB(24, 25, 24);
+            const auto faint = juce::Colour::fromRGB(140, 142, 136);
 
-            graphics.fillAll(background);
-            graphics.setFont(juce::FontOptions(juce::Font::getDefaultSansSerifFontName(), 10.5f, juce::Font::bold));
+            graphics.fillAll(paper);
+            graphics.setColour(faint.withAlpha(0.10f));
+            for (int y = 26; y < getHeight(); y += 34)
+                graphics.drawHorizontalLine(y, 0.0f, static_cast<float>(getWidth()));
 
             for (int index = 0; index < static_cast<int>(strips.size()); ++index)
             {
-                const auto x = 18 + index * stripWidth;
-                auto bounds = juce::Rectangle<int>(x, 12, stripWidth - 6, juce::jmax(320, contentHeight - 22));
-                const auto header = bounds.removeFromTop(128);
-                auto faderZone = bounds;
-                auto plate = faderZone.removeFromBottom(58);
-                faderZone.reduce(0, 6);
+                const auto& channel = strips[static_cast<std::size_t>(index)];
+                const auto x = 10 + index * stripWidth;
+                auto bounds = juce::Rectangle<int>(x, 10, stripWidth - 8, juce::jmax(380, contentHeight - 20));
 
-                graphics.setColour(strip);
-                graphics.fillRect(juce::Rectangle<int>(x, 0, stripWidth - 2, getHeight()));
-                graphics.setColour(dark.withAlpha(0.75f));
-                graphics.drawVerticalLine(x - 1, 0.0f, static_cast<float>(getHeight()));
-                graphics.drawVerticalLine(x + stripWidth - 3, 0.0f, static_cast<float>(getHeight()));
+                graphics.setColour(channel.master ? juce::Colour::fromRGB(69, 65, 79) : strip);
+                graphics.fillRect(bounds);
+                graphics.setColour(line.withAlpha(channel.master ? 0.90f : 0.64f));
+                graphics.drawRect(bounds, channel.master ? 2 : 1);
 
-                auto slotArea = header.reduced(8, 4);
-                for (int row = 0; row < 4; ++row)
-                {
-                    const auto rowBounds = slotArea.removeFromTop(23).reduced(0, 2);
-                    graphics.setColour(slot);
-                    graphics.fillRoundedRectangle(rowBounds.toFloat(), 3.0f);
-                    graphics.setColour(dark);
-                    graphics.drawRoundedRectangle(rowBounds.toFloat().reduced(0.5f), 3.0f, 1.0f);
-                    graphics.setColour(row == 2 ? juce::Colour::fromRGB(94, 255, 132) : muted);
-                    const auto text = row == 0 ? strips[static_cast<std::size_t>(index)].output
-                                    : row == 1 ? (strips[static_cast<std::size_t>(index)].master ? "MASTER" : "BUS 1")
-                                    : row == 2 ? "READ"
-                                               : (strips[static_cast<std::size_t>(index)].master ? "SUM" : "INST");
-                    graphics.drawFittedText(text, rowBounds.reduced(4, 0), juce::Justification::centred, 1);
-                }
+                auto colourBand = bounds.removeFromBottom(44);
+                graphics.setColour(channel.colour);
+                graphics.fillRect(colourBand);
 
-                const auto meter = faderZone.withSizeKeepingCentre(12, juce::jmax(160, faderZone.getHeight() - 16));
-                graphics.setColour(dark);
-                graphics.fillRect(meter);
-                graphics.setColour(juce::Colour::fromRGB(16, 32, 22));
-                graphics.fillRect(meter.reduced(3, 0));
-
-                graphics.setColour(muted.withAlpha(0.65f));
-                const int ticks = 13;
-                for (int tick = 0; tick <= ticks; ++tick)
-                {
-                    const auto y = meter.getY() + tick * meter.getHeight() / ticks;
-                    graphics.drawHorizontalLine(y, static_cast<float>(meter.getX() - 14), static_cast<float>(meter.getX() - 4));
-                    if (tick % 3 == 0)
-                        graphics.drawFittedText(tick == 0 ? "0" : juce::String(tick * 3),
-                                                { meter.getX() - 32, y - 6, 15, 12 },
-                                                juce::Justification::centredRight,
-                                                1);
-                }
-
-                graphics.setColour(strips[static_cast<std::size_t>(index)].colour);
-                graphics.fillRect(plate);
-                graphics.setColour(dark);
-                graphics.drawRect(plate, 1);
+                auto header = bounds.removeFromTop(72).reduced(6, 7);
                 graphics.setColour(ink);
-                graphics.drawFittedText(strips[static_cast<std::size_t>(index)].name,
-                                        plate.reduced(5, 4),
+                graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::bold));
+                graphics.drawFittedText(channel.name, header.removeFromTop(23), juce::Justification::centred, 1);
+
+                graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::plain));
+                graphics.setColour(ink.withAlpha(0.68f));
+                graphics.drawFittedText(channel.master ? "STEREO OUT" : channel.output,
+                                        header.removeFromTop(16),
                                         juce::Justification::centred,
-                                        2);
+                                        1);
+
+                if (! channel.master)
+                {
+                    const auto panGuide = juce::Rectangle<int>(bounds.getX() + 13, bounds.getY() + 18, bounds.getWidth() - 26, 14);
+                    graphics.setColour(line.withAlpha(0.35f));
+                    graphics.drawHorizontalLine(panGuide.getCentreY(), static_cast<float>(panGuide.getX()), static_cast<float>(panGuide.getRight()));
+                    graphics.drawVerticalLine(panGuide.getCentreX(), static_cast<float>(panGuide.getY()), static_cast<float>(panGuide.getBottom()));
+                    graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 7.5f, juce::Font::plain));
+                    graphics.setColour(ink.withAlpha(0.55f));
+                    graphics.drawFittedText("L", panGuide.withTrimmedRight(panGuide.getWidth() - 10), juce::Justification::centredLeft, 1);
+                    graphics.drawFittedText("R", panGuide.withTrimmedLeft(panGuide.getWidth() - 10), juce::Justification::centredRight, 1);
+                }
+
+                const auto faderLane = juce::Rectangle<int>(bounds.getCentreX() - 1,
+                                                            bounds.getY() + (channel.master ? 32 : 62),
+                                                            2,
+                                                            juce::jmax(180, bounds.getHeight() - (channel.master ? 114 : 144)));
+                graphics.setColour(line.withAlpha(0.28f));
+                graphics.fillRect(faderLane.expanded(7, 0));
+                graphics.setColour(line.withAlpha(0.42f));
+                for (int tick = 0; tick <= 8; ++tick)
+                {
+                    const auto y = faderLane.getY() + tick * faderLane.getHeight() / 8;
+                    const auto tickWidth = tick % 2 == 0 ? 10.0f : 6.0f;
+                    graphics.drawHorizontalLine(y,
+                                                static_cast<float>(faderLane.getCentreX()) - tickWidth,
+                                                static_cast<float>(faderLane.getCentreX()) - 4.0f);
+                    graphics.drawHorizontalLine(y,
+                                                static_cast<float>(faderLane.getCentreX()) + 4.0f,
+                                                static_cast<float>(faderLane.getCentreX()) + tickWidth);
+                }
+
+                const auto meterBounds = juce::Rectangle<int>(bounds.getRight() - 15,
+                                                              faderLane.getY(),
+                                                              5,
+                                                              faderLane.getHeight());
+                graphics.setColour(line.withAlpha(0.52f));
+                graphics.fillRect(meterBounds);
+
+                const auto meterLevel = juce::jlimit(0.0f, 1.0f, channel.meter);
+                const auto meterHeight = static_cast<int>(std::round(static_cast<float>(meterBounds.getHeight()) * meterLevel));
+                auto meterFill = meterBounds.withY(meterBounds.getBottom() - meterHeight).withHeight(meterHeight);
+                const auto hot = meterLevel > 0.86f;
+                const auto warm = meterLevel > 0.66f;
+                graphics.setColour(hot ? juce::Colour::fromRGB(255, 75, 75)
+                                       : warm ? juce::Colour::fromRGB(255, 214, 74)
+                                              : juce::Colour::fromRGB(82, 220, 110));
+                graphics.fillRect(meterFill);
+
+                graphics.setColour(juce::Colours::white.withAlpha(0.88f));
+                graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.5f, juce::Font::bold));
+                graphics.drawFittedText(channel.name, colourBand.reduced(5, 4), juce::Justification::centred, 2);
             }
         }
 
@@ -383,12 +417,13 @@ private:
     void styleMixerControls();
     void toggleMixerView();
     void refreshMixerView();
+    void refreshMixerMeters();
     void configureArrangementView();
     void toggleArrangementView();
     void refreshArrangementView();
     void applyMixerControl(int stateIndex, int laneIndex, int mixerControlIndex);
     void applyMasterLevel();
-    void applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane) const;
+    void applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane, float transitionGain = 1.0f) const;
     void configureLaneCodePane();
     void styleLaneCodePane();
     void storeActiveLane();
@@ -422,16 +457,30 @@ private:
     {
         int targetState = 0;
         double chance = 0.0;
+        juce::String condition;
     };
 
     struct TransitionRules
     {
         std::map<int, int> linear;
         std::map<int, std::vector<TransitionChoice>> weighted;
+        std::vector<int> cycle;
+        std::map<juce::String, std::vector<TransitionChoice>> triggers;
+    };
+
+    struct TransitionContext
+    {
+        std::uint64_t frame = 0;
+        std::uint64_t stateFrame = 0;
+        int state = 1;
+        int beat = 0;
+        int bar = 0;
+        juce::String triggerName;
     };
 
     [[nodiscard]] TransitionRules parseTransitionRules(juce::String text) const;
-    [[nodiscard]] int chooseTransitionTarget(const TransitionRules& rules, int currentState);
+    [[nodiscard]] bool transitionConditionMatches(juce::String condition, const TransitionContext& context) const;
+    [[nodiscard]] int chooseTransitionTarget(const TransitionRules& rules, int currentState, const TransitionContext& context);
     void applyTransitionTarget(int targetState);
     bool applyTransitionTargetForTransport(int targetState, std::uint64_t transitionFrame, double& stateBpmOut);
 
@@ -550,6 +599,7 @@ private:
     std::array<juce::Slider, maximumMixerChannels> mixerPanSliders;
     std::array<juce::TextButton, maximumMixerChannels> mixerMuteButtons;
     std::array<juce::TextButton, maximumMixerChannels> mixerSoloButtons;
+    std::array<std::atomic<float>, maximumMixerChannels> mixerMeterPeaks {};
 
     juce::TextButton playPauseButton;
     juce::TextButton stopButton;

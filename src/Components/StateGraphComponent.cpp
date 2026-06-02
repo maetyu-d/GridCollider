@@ -12,15 +12,15 @@ constexpr float minimumZoom = 0.45f;
 constexpr float maximumZoom = 3.0f;
 constexpr float zoomStep = 1.12f;
 
-[[nodiscard]] juce::Colour paper() noexcept { return juce::Colour::fromRGB(255, 246, 198); }
-[[nodiscard]] juce::Colour panel() noexcept { return juce::Colour::fromRGB(255, 252, 235); }
-[[nodiscard]] juce::Colour ink() noexcept { return juce::Colour::fromRGB(18, 20, 22); }
+[[nodiscard]] juce::Colour paper() noexcept { return juce::Colour::fromRGB(28, 29, 30); }
+[[nodiscard]] juce::Colour panel() noexcept { return juce::Colour::fromRGB(44, 45, 46); }
+[[nodiscard]] juce::Colour ink() noexcept { return juce::Colour::fromRGB(238, 239, 240); }
 
 [[nodiscard]] juce::Colour accent(const int index) noexcept
 {
     static constexpr std::array<std::uint32_t, 8> colours {
-        0xff005cff, 0xffff362e, 0xffffda00, 0xff00be4e,
-        0xffff7a00, 0xffb000ff, 0xff00c8ff, 0xffff4db8
+        0xff007aff, 0xffff9f0a, 0xff32d74b, 0xffff453a,
+        0xffbf5af2, 0xff64d2ff, 0xffffd60a, 0xffff375f
     };
     return juce::Colour(colours[static_cast<std::size_t>(juce::jlimit(0, 7, index % 8))]);
 }
@@ -49,15 +49,54 @@ void drawHatch(juce::Graphics& graphics,
     juce::ignoreUnused(angleDegrees);
     const auto step = juce::jmax(22.0f, spacing * 3.0f);
 
-    graphics.setColour(juce::Colour::fromRGB(0, 92, 255).withAlpha(alpha * 0.18f));
+    graphics.setColour(juce::Colour::fromRGB(86, 90, 94).withAlpha(alpha * 0.24f));
     for (auto y = area.getY(); y < area.getBottom(); y += step)
         graphics.drawHorizontalLine(juce::roundToInt(y), area.getX(), area.getRight());
 
-    graphics.setColour(juce::Colour::fromRGB(255, 54, 46).withAlpha(alpha * 0.10f));
+    graphics.setColour(juce::Colours::black.withAlpha(alpha * 0.12f));
     for (auto x = area.getX(); x < area.getRight(); x += step)
         graphics.drawVerticalLine(juce::roundToInt(x), area.getY(), area.getBottom());
 
     graphics.restoreState();
+}
+
+struct NodeLabel
+{
+    juce::String state;
+    juce::String name;
+};
+
+[[nodiscard]] NodeLabel splitStateName(const juce::String& rawName, const int fallbackIndex)
+{
+    const auto name = rawName.trim();
+    const auto separator = name.indexOf(" - ");
+
+    if (separator > 0)
+        return { name.substring(0, separator).trim(),
+                 name.substring(separator + 3).trim() };
+
+    return { "State " + juce::String(fallbackIndex + 1).paddedLeft('0', 2),
+             name };
+}
+
+void drawCentredNodeLine(juce::Graphics& graphics,
+                         juce::Rectangle<float> area,
+                         juce::String text,
+                         const juce::FontOptions& options,
+                         const juce::Colour colour)
+{
+    const juce::Font font(options);
+    juce::GlyphArrangement glyphs;
+    glyphs.addCurtailedLineOfText(font, text.trim(), 0.0f, 0.0f, area.getWidth(), true);
+    glyphs.justifyGlyphs(0,
+                         glyphs.getNumGlyphs(),
+                         area.getX(),
+                         area.getY(),
+                         area.getWidth(),
+                         area.getHeight(),
+                         juce::Justification::centred);
+    graphics.setColour(colour);
+    glyphs.draw(graphics);
 }
 }
 
@@ -172,22 +211,36 @@ void StateGraphComponent::paint(juce::Graphics& graphics)
         graphics.setColour(selected ? accent(index) : ink().withAlpha(0.46f));
         graphics.drawEllipse(bounds, selected ? 2.0f : 1.0f);
 
-        const auto gridCount = juce::jlimit(1, 8, states[static_cast<std::size_t>(index)].gridCount);
+        const auto& state = states[static_cast<std::size_t>(index)];
+        const auto gridCount = juce::jlimit(1, 8, state.gridCount);
+        const auto nodeLabel = splitStateName(state.name, index);
+        const auto textWidth = bounds.getWidth() * 0.72f;
+        const auto centre = bounds.getCentre();
+        const auto titleSize = selected ? 13.2f : 12.4f;
+        const auto nameSize = selected ? 14.0f : 13.0f;
+        const auto metaSize = selected ? 10.4f : 10.0f;
+        const auto stateLine = juce::Rectangle<float>(textWidth, 18.0f).withCentre({ centre.x, centre.y - 20.0f });
+        const auto nameLine = juce::Rectangle<float>(textWidth, 20.0f).withCentre({ centre.x, centre.y - 2.0f });
+        const auto metaLine = juce::Rectangle<float>(textWidth, 16.0f).withCentre({ centre.x, centre.y + 20.0f });
 
-        graphics.setFont(juce::FontOptions(juce::Font::getDefaultSansSerifFontName(), selected ? 18.0f : 16.0f, juce::Font::bold));
-        graphics.setColour(ink());
-        graphics.drawFittedText(states[static_cast<std::size_t>(index)].name,
-                                bounds.withTrimmedTop(bounds.getHeight() * 0.24f).toNearestInt(),
-                                juce::Justification::centred,
-                                1);
+        drawCentredNodeLine(graphics,
+                            stateLine,
+                            nodeLabel.state.toUpperCase(),
+                            juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), titleSize, juce::Font::bold),
+                            ink().withAlpha(selected ? 0.96f : 0.82f));
 
-        graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
-        graphics.setColour(ink().withAlpha(0.82f));
-        graphics.drawFittedText(juce::String(gridCount) + (gridCount == 1 ? " grid" : " grids")
-                                    + "  " + juce::String(states[static_cast<std::size_t>(index)].bpm, 0) + " BPM",
-                                bounds.withTrimmedTop(bounds.getHeight() * 0.54f).reduced(8.0f, 0.0f).toNearestInt(),
-                                juce::Justification::centred,
-                                1);
+        drawCentredNodeLine(graphics,
+                            nameLine,
+                            nodeLabel.name,
+                            juce::FontOptions(juce::Font::getDefaultSansSerifFontName(), nameSize, juce::Font::bold),
+                            ink());
+
+        drawCentredNodeLine(graphics,
+                            metaLine,
+                            juce::String(gridCount) + (gridCount == 1 ? " lane" : " lanes")
+                                + "  " + juce::String(state.bpm, 0) + " BPM",
+                            juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), metaSize, juce::Font::plain),
+                            ink().withAlpha(0.72f));
 
         if (selected && playing)
         {
