@@ -404,9 +404,7 @@ struct EmbeddedScAudioEngine::Impl
 
     bool loadSynthDef(const juce::String& name, const juce::String& source)
     {
-        const juce::ScopedLock lock(engineLock);
-
-        if (! ready.load(std::memory_order_acquire) || world == nullptr)
+        if (! ready.load(std::memory_order_acquire) || compileSynthDef == nullptr)
         {
             lastError = "Embedded SuperCollider is not ready";
             return false;
@@ -414,10 +412,31 @@ struct EmbeddedScAudioEngine::Impl
 
         std::vector<char> bytes;
 
-        if (! compileSynth(name, source, bytes))
-            return false;
+        {
+            const juce::ScopedLock compileGuard(synthCompileLock);
 
-        sendPacket(buildOscMessage("/d_recv", { OscArgument::blob(std::move(bytes)) }));
+            if (! ready.load(std::memory_order_acquire) || compileSynthDef == nullptr)
+            {
+                lastError = "Embedded SuperCollider is not ready";
+                return false;
+            }
+
+            if (! compileSynth(name, source, bytes))
+                return false;
+        }
+
+        {
+            const juce::ScopedLock lock(engineLock);
+
+            if (! ready.load(std::memory_order_acquire) || world == nullptr)
+            {
+                lastError = "Embedded SuperCollider is not ready";
+                return false;
+            }
+
+            sendPacket(buildOscMessage("/d_recv", { OscArgument::blob(std::move(bytes)) }));
+        }
+
         debugLog("loaded SynthDef " + name);
         return true;
     }
@@ -820,6 +839,7 @@ private:
     }
 
     mutable juce::CriticalSection engineLock;
+    mutable juce::CriticalSection synthCompileLock;
     juce::CriticalSection queueLock;
     juce::String lastError;
     juce::String status = "EMBEDDED SC OFF";

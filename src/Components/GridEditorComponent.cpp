@@ -11,6 +11,7 @@ namespace
 {
 constexpr float baseCellWidth = 14.0f;
 constexpr float baseCellHeight = 18.0f;
+constexpr float defaultZoom = 2.0f;
 constexpr float minimumZoom = 0.40f;
 constexpr float maximumZoom = 3.0f;
 constexpr float zoomStep = 1.12f;
@@ -39,11 +40,11 @@ void drawHatch(juce::Graphics& graphics, juce::Rectangle<float> area, const int 
     graphics.saveState();
     graphics.reduceClipRegion(area.toNearestInt());
 
-    graphics.setColour(juce::Colour::fromRGB(88, 94, 84).withAlpha(alpha));
+    graphics.setColour(juce::Colour::fromRGB(0, 92, 255).withAlpha(alpha));
     for (auto y = area.getY(); y < area.getBottom(); y += step)
         graphics.drawHorizontalLine(juce::roundToInt(y), area.getX(), area.getRight());
 
-    graphics.setColour(juce::Colour::fromRGB(88, 94, 84).withAlpha(alpha * 0.6f));
+    graphics.setColour(juce::Colour::fromRGB(255, 54, 46).withAlpha(alpha * 0.6f));
     for (auto x = area.getX(); x < area.getRight(); x += step * 2.0f)
         graphics.drawVerticalLine(juce::roundToInt(x), area.getY(), area.getBottom());
 
@@ -53,21 +54,21 @@ void drawHatch(juce::Graphics& graphics, juce::Rectangle<float> area, const int 
 [[nodiscard]] juce::Colour colourForGlyph(const char glyph, const float alpha = 1.0f)
 {
     if (glyph == '.')
-        return juce::Colour::fromRGB(144, 150, 137).withAlpha(alpha * 0.45f);
+        return juce::Colour::fromRGB(20, 24, 28).withAlpha(alpha * 0.42f);
 
     if (glyph >= '0' && glyph <= '9')
-        return juce::Colour::fromRGB(205, 178, 70).withAlpha(alpha);
+        return juce::Colour::fromRGB(255, 218, 0).withAlpha(alpha);
 
     if (glyph >= 'A' && glyph <= 'Z')
-        return juce::Colour::fromRGB(96, 142, 196).withAlpha(alpha);
+        return juce::Colour::fromRGB(0, 92, 255).withAlpha(alpha);
 
     if (glyph >= 'a' && glyph <= 'z')
-        return juce::Colour::fromRGB(111, 187, 112).withAlpha(alpha);
+        return juce::Colour::fromRGB(0, 190, 78).withAlpha(alpha);
 
     if (glyph == '*' || glyph == ':' || glyph == ';')
-        return juce::Colour::fromRGB(224, 106, 42).withAlpha(alpha);
+        return juce::Colour::fromRGB(255, 54, 46).withAlpha(alpha);
 
-    return juce::Colour::fromRGB(180, 184, 170).withAlpha(alpha);
+    return juce::Colour::fromRGB(18, 20, 22).withAlpha(alpha);
 }
 }
 
@@ -185,11 +186,12 @@ void GridEditorComponent::paint(juce::Graphics& graphics)
 
             if (glyph != '.')
             {
-                graphics.setColour(colourForGlyph(glyph, 0.78f));
+                graphics.setColour(colourForGlyph(glyph, 0.34f));
                 graphics.fillRect(cellBounds.reduced(1));
             }
 
-            graphics.setColour(isCursor ? theme.cursorText : colourForGlyph(glyph));
+            graphics.setColour(isCursor ? theme.cursorText
+                                        : (glyph == '.' ? theme.mutedText : theme.text));
             graphics.drawText(juce::String::charToString(static_cast<juce::juce_wchar>(glyph)),
                               cellBounds,
                               juce::Justification::centred,
@@ -519,7 +521,7 @@ void GridEditorComponent::zoomOut()
 
 void GridEditorComponent::resetZoom()
 {
-    setZoom(1.0f);
+    setZoom(defaultZoom);
 }
 
 void GridEditorComponent::fitToView()
@@ -537,7 +539,7 @@ void GridEditorComponent::fitToView()
 
     const auto fitZoom = juce::jmin(layout.gridViewport.getWidth() / contentWidth,
                                     layout.gridViewport.getHeight() / contentHeight);
-    setZoom(juce::jmin(1.0f, fitZoom));
+    setZoom(juce::jmin(defaultZoom, fitZoom * defaultZoom));
     scrollOffset = {};
     clampScrollOffset();
     repaint();

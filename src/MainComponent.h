@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <juce_gui_extra/juce_gui_extra.h>
 
 #include "Components/GridEditorComponent.h"
 #include "Components/StateGraphComponent.h"
@@ -36,8 +37,10 @@ public:
     void menuSaveComposition();
     void menuSaveCompositionAs();
     void menuToggleMixerView();
+    void menuToggleArrangementView();
     void menuLoadExample(const juce::File& file);
     [[nodiscard]] bool isMixerViewVisible() const noexcept;
+    [[nodiscard]] bool isArrangementViewVisible() const noexcept;
 
     void paint(juce::Graphics& graphics) override;
     void resized() override;
@@ -106,28 +109,175 @@ private:
     class MixerContentComponent final : public juce::Component
     {
     public:
+        struct Strip
+        {
+            juce::String name;
+            juce::String output;
+            juce::Colour colour;
+            bool master = false;
+        };
+
         MixerContentComponent() { setOpaque(true); }
+
+        void setStrips(std::vector<Strip> newStrips, int newStripWidth, int newContentHeight)
+        {
+            strips = std::move(newStrips);
+            stripWidth = newStripWidth;
+            contentHeight = newContentHeight;
+            repaint();
+        }
 
         void paint(juce::Graphics& graphics) override
         {
-            const auto background = juce::Colour::fromRGB(18, 19, 18);
-            const auto ink = juce::Colour::fromRGB(226, 230, 216);
-            const auto grid = juce::Colour::fromRGB(88, 94, 84).withAlpha(0.28f);
+            const auto background = juce::Colour::fromRGB(84, 84, 82);
+            const auto strip = juce::Colour::fromRGB(96, 96, 94);
+            const auto dark = juce::Colour::fromRGB(48, 48, 47);
+            const auto slot = juce::Colour::fromRGB(72, 72, 70);
+            const auto ink = juce::Colour::fromRGB(238, 238, 232);
+            const auto muted = juce::Colour::fromRGB(185, 185, 178);
 
             graphics.fillAll(background);
-            for (int x = 0; x < getWidth(); x += 96)
+            graphics.setFont(juce::FontOptions(juce::Font::getDefaultSansSerifFontName(), 10.5f, juce::Font::bold));
+
+            for (int index = 0; index < static_cast<int>(strips.size()); ++index)
             {
-                graphics.setColour(grid);
-                graphics.drawVerticalLine(x, 0.0f, static_cast<float>(getHeight()));
+                const auto x = 18 + index * stripWidth;
+                auto bounds = juce::Rectangle<int>(x, 12, stripWidth - 6, juce::jmax(320, contentHeight - 22));
+                const auto header = bounds.removeFromTop(128);
+                auto faderZone = bounds;
+                auto plate = faderZone.removeFromBottom(58);
+                faderZone.reduce(0, 6);
+
+                graphics.setColour(strip);
+                graphics.fillRect(juce::Rectangle<int>(x, 0, stripWidth - 2, getHeight()));
+                graphics.setColour(dark.withAlpha(0.75f));
+                graphics.drawVerticalLine(x - 1, 0.0f, static_cast<float>(getHeight()));
+                graphics.drawVerticalLine(x + stripWidth - 3, 0.0f, static_cast<float>(getHeight()));
+
+                auto slotArea = header.reduced(8, 4);
+                for (int row = 0; row < 4; ++row)
+                {
+                    const auto rowBounds = slotArea.removeFromTop(23).reduced(0, 2);
+                    graphics.setColour(slot);
+                    graphics.fillRoundedRectangle(rowBounds.toFloat(), 3.0f);
+                    graphics.setColour(dark);
+                    graphics.drawRoundedRectangle(rowBounds.toFloat().reduced(0.5f), 3.0f, 1.0f);
+                    graphics.setColour(row == 2 ? juce::Colour::fromRGB(94, 255, 132) : muted);
+                    const auto text = row == 0 ? strips[static_cast<std::size_t>(index)].output
+                                    : row == 1 ? (strips[static_cast<std::size_t>(index)].master ? "MASTER" : "BUS 1")
+                                    : row == 2 ? "READ"
+                                               : (strips[static_cast<std::size_t>(index)].master ? "SUM" : "INST");
+                    graphics.drawFittedText(text, rowBounds.reduced(4, 0), juce::Justification::centred, 1);
+                }
+
+                const auto meter = faderZone.withSizeKeepingCentre(12, juce::jmax(160, faderZone.getHeight() - 16));
+                graphics.setColour(dark);
+                graphics.fillRect(meter);
+                graphics.setColour(juce::Colour::fromRGB(16, 32, 22));
+                graphics.fillRect(meter.reduced(3, 0));
+
+                graphics.setColour(muted.withAlpha(0.65f));
+                const int ticks = 13;
+                for (int tick = 0; tick <= ticks; ++tick)
+                {
+                    const auto y = meter.getY() + tick * meter.getHeight() / ticks;
+                    graphics.drawHorizontalLine(y, static_cast<float>(meter.getX() - 14), static_cast<float>(meter.getX() - 4));
+                    if (tick % 3 == 0)
+                        graphics.drawFittedText(tick == 0 ? "0" : juce::String(tick * 3),
+                                                { meter.getX() - 32, y - 6, 15, 12 },
+                                                juce::Justification::centredRight,
+                                                1);
+                }
+
+                graphics.setColour(strips[static_cast<std::size_t>(index)].colour);
+                graphics.fillRect(plate);
+                graphics.setColour(dark);
+                graphics.drawRect(plate, 1);
+                graphics.setColour(ink);
+                graphics.drawFittedText(strips[static_cast<std::size_t>(index)].name,
+                                        plate.reduced(5, 4),
+                                        juce::Justification::centred,
+                                        2);
             }
-            for (int y = 0; y < getHeight(); y += 28)
-            {
-                graphics.setColour(grid);
-                graphics.drawHorizontalLine(y, 0.0f, static_cast<float>(getWidth()));
-            }
-            graphics.setColour(ink);
-            graphics.drawRect(getLocalBounds(), 1);
         }
+
+    private:
+        std::vector<Strip> strips;
+        int stripWidth = 112;
+        int contentHeight = 420;
+    };
+
+    class ArrangementContentComponent final : public juce::Component
+    {
+    public:
+        struct State
+        {
+            juce::String name;
+            int laneCount = 0;
+            int bars = 4;
+            int numerator = 4;
+            int denominator = 4;
+            double bpm = 120.0;
+            bool selected = false;
+            juce::Colour colour;
+            std::vector<juce::Colour> laneColours;
+        };
+
+        struct Edge
+        {
+            int from = 0;
+            int to = 0;
+            double chance = 1.0;
+            bool weighted = false;
+        };
+
+        ArrangementContentComponent() { setOpaque(true); }
+        void setArrangement(std::vector<State> newStates, std::vector<Edge> newEdges, int selectedIndex);
+        void paint(juce::Graphics& graphics) override;
+
+    private:
+        std::vector<State> states;
+        std::vector<Edge> edges;
+        int selectedStateIndex = 0;
+    };
+
+    class SuperColliderCodeTokeniser final : public juce::CodeTokeniser
+    {
+    public:
+        enum TokenType
+        {
+            tokenType_error = 0,
+            tokenType_comment,
+            tokenType_keyword,
+            tokenType_builtin,
+            tokenType_identifier,
+            tokenType_number,
+            tokenType_string,
+            tokenType_symbol,
+            tokenType_operator,
+            tokenType_bracket,
+            tokenType_punctuation
+        };
+
+        int readNextToken(juce::CodeDocument::Iterator& source) override;
+        juce::CodeEditorComponent::ColourScheme getDefaultColourScheme() override;
+    };
+
+    class CodeDocumentChangeListener final : public juce::CodeDocument::Listener
+    {
+    public:
+        void setCallback(std::function<void()> newCallback) { callback = std::move(newCallback); }
+        void codeDocumentTextInserted(const juce::String&, int) override { notify(); }
+        void codeDocumentTextDeleted(int, int) override { notify(); }
+
+    private:
+        void notify()
+        {
+            if (callback)
+                callback();
+        }
+
+        std::function<void()> callback;
     };
 
     class SourceCodeBackdropComponent final : public juce::Component
@@ -215,6 +365,7 @@ private:
     void advanceStateFromTransitionPane(const TransportEngine::TickResult& result);
     void toggleSelectedStateAdvanceMode();
     void applyStateAdvanceEditor();
+    void applyStateTimeSignatureEditors();
     void updateStateAdvanceControls();
     void configureStateGraph();
     void refreshStateGraph();
@@ -232,6 +383,9 @@ private:
     void styleMixerControls();
     void toggleMixerView();
     void refreshMixerView();
+    void configureArrangementView();
+    void toggleArrangementView();
+    void refreshArrangementView();
     void applyMixerControl(int stateIndex, int laneIndex, int mixerControlIndex);
     void applyMasterLevel();
     void applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane) const;
@@ -243,6 +397,7 @@ private:
     void toggleSelectedLaneKind();
     void compileSelectedScLane();
     void compileScLanesForState(int stateIndex);
+    void compileScLanesForAllStates();
     [[nodiscard]] juce::String createDefaultScLaneCode(int stateNumber, int laneNumber) const;
     [[nodiscard]] juce::String getSynthDefNameFromSource(const juce::String& source, int stateNumber, int laneNumber) const;
     void applyGridSizeEditors();
@@ -278,6 +433,7 @@ private:
     [[nodiscard]] TransitionRules parseTransitionRules(juce::String text) const;
     [[nodiscard]] int chooseTransitionTarget(const TransitionRules& rules, int currentState);
     void applyTransitionTarget(int targetState);
+    bool applyTransitionTargetForTransport(int targetState, std::uint64_t transitionFrame, double& stateBpmOut);
 
     struct MainLayout
     {
@@ -341,6 +497,8 @@ private:
         double bpm = 120.0;
         AdvanceMode advanceMode = AdvanceMode::manual;
         int advanceInterval = 4;
+        int timeSignatureNumerator = 4;
+        int timeSignatureDenominator = 4;
         juce::String transitionCode;
         std::vector<CompositionGrid> grids;
     };
@@ -370,19 +528,28 @@ private:
     juce::TextButton embeddedScTestButton;
     juce::Label transitionCodeLabel;
     SourceCodeBackdropComponent transitionCodeBackdrop;
-    juce::TextEditor transitionCodeEditor;
     juce::TextEditor eventMonitor;
     juce::Label eventMonitorLabel;
     SourceCodeBackdropComponent laneCodeBackdrop;
-    juce::TextEditor laneScCodeEditor;
+    SuperColliderCodeTokeniser scCodeTokeniser;
+    juce::CodeDocument transitionCodeDocument;
+    juce::CodeDocument laneScCodeDocument;
+    CodeDocumentChangeListener transitionCodeDocumentListener;
+    CodeDocumentChangeListener laneScCodeDocumentListener;
+    juce::CodeEditorComponent transitionCodeEditor;
+    juce::CodeEditorComponent laneScCodeEditor;
 
     static constexpr int maximumMixerChannels = 129;
     juce::Viewport mixerViewport;
     MixerContentComponent mixerContent;
+    juce::Viewport arrangementViewport;
+    ArrangementContentComponent arrangementContent;
     juce::Label mixerLabel;
     std::array<juce::Label, maximumMixerChannels> mixerChannelLabels;
     std::array<juce::Slider, maximumMixerChannels> mixerLevelSliders;
     std::array<juce::Slider, maximumMixerChannels> mixerPanSliders;
+    std::array<juce::TextButton, maximumMixerChannels> mixerMuteButtons;
+    std::array<juce::TextButton, maximumMixerChannels> mixerSoloButtons;
 
     juce::TextButton playPauseButton;
     juce::TextButton stopButton;
@@ -396,6 +563,10 @@ private:
     juce::Label stateAdvanceLabel;
     juce::TextButton stateAdvanceModeButton;
     juce::TextEditor stateAdvanceIntervalEditor;
+    juce::Label stateTimeSignatureLabel;
+    juce::TextEditor stateTimeSignatureNumeratorEditor;
+    juce::Label stateTimeSignatureSeparatorLabel;
+    juce::TextEditor stateTimeSignatureDenominatorEditor;
     juce::Label gridSlotLabel;
     juce::TextButton previousGridButton;
     juce::TextButton nextGridButton;
@@ -418,11 +589,15 @@ private:
     double lastPulseTimeMs = 0.0;
     bool eventMonitorDirty = false;
     bool updatingTransitionCodeEditor = false;
+    bool updatingLaneCodeEditor = false;
+    bool pendingLaneCodeCompile = false;
+    double lastLaneCodeEditMs = 0.0;
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::File currentCompositionFile;
     float masterLevel = 0.9f;
     int masterMixerControlIndex = maximumMixerChannels - 1;
     bool mixerViewVisible = false;
+    bool arrangementViewVisible = false;
     std::uint64_t uiFrameCounter = 0;
     double lastTimerCallbackMs = 0.0;
     double timerDeltaMs = 0.0;
@@ -435,6 +610,8 @@ private:
     int activeStateIndex = 0;
     int activeGridSlot = 0;
     std::uint64_t activeStateEntryFrame = 0;
+    std::atomic<bool> pendingTransitionUiRefresh { false };
+    std::atomic<int> pendingTransitionUiState { -1 };
     int transitionPaneHeight = 150;
     double fsmGridSplitRatio = 0.5;
     int headerHatchAngle = 90;

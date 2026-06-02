@@ -12,15 +12,15 @@ constexpr float minimumZoom = 0.45f;
 constexpr float maximumZoom = 3.0f;
 constexpr float zoomStep = 1.12f;
 
-[[nodiscard]] juce::Colour paper() noexcept { return juce::Colour::fromRGB(24, 25, 23); }
-[[nodiscard]] juce::Colour panel() noexcept { return juce::Colour::fromRGB(34, 36, 33); }
-[[nodiscard]] juce::Colour ink() noexcept { return juce::Colour::fromRGB(226, 230, 216); }
+[[nodiscard]] juce::Colour paper() noexcept { return juce::Colour::fromRGB(255, 246, 198); }
+[[nodiscard]] juce::Colour panel() noexcept { return juce::Colour::fromRGB(255, 252, 235); }
+[[nodiscard]] juce::Colour ink() noexcept { return juce::Colour::fromRGB(18, 20, 22); }
 
 [[nodiscard]] juce::Colour accent(const int index) noexcept
 {
     static constexpr std::array<std::uint32_t, 8> colours {
-        0xff608ec4, 0xffd36c38, 0xffcdb246, 0xff6fbb70,
-        0xffb98d5a, 0xff8d78ad, 0xff77a99a, 0xffb0b6a6
+        0xff005cff, 0xffff362e, 0xffffda00, 0xff00be4e,
+        0xffff7a00, 0xffb000ff, 0xff00c8ff, 0xffff4db8
     };
     return juce::Colour(colours[static_cast<std::size_t>(juce::jlimit(0, 7, index % 8))]);
 }
@@ -49,11 +49,11 @@ void drawHatch(juce::Graphics& graphics,
     juce::ignoreUnused(angleDegrees);
     const auto step = juce::jmax(22.0f, spacing * 3.0f);
 
-    graphics.setColour(ink().withAlpha(alpha * 0.18f));
+    graphics.setColour(juce::Colour::fromRGB(0, 92, 255).withAlpha(alpha * 0.18f));
     for (auto y = area.getY(); y < area.getBottom(); y += step)
         graphics.drawHorizontalLine(juce::roundToInt(y), area.getX(), area.getRight());
 
-    graphics.setColour(ink().withAlpha(alpha * 0.10f));
+    graphics.setColour(juce::Colour::fromRGB(255, 54, 46).withAlpha(alpha * 0.10f));
     for (auto x = area.getX(); x < area.getRight(); x += step)
         graphics.drawVerticalLine(juce::roundToInt(x), area.getY(), area.getBottom());
 
@@ -108,7 +108,7 @@ void StateGraphComponent::fitToView()
 
     const auto fitX = area.getWidth() / graphBounds.getWidth();
     const auto fitY = area.getHeight() / graphBounds.getHeight();
-    autoFitZoom = juce::jlimit(minimumZoom, 1.0f, juce::jmin(fitX, fitY) * 0.94f);
+    autoFitZoom = juce::jlimit(minimumZoom, 1.2f, juce::jmin(fitX, fitY) * 1.128f);
     zoom = autoFitZoom;
     panOffset = area.getCentre() - graphBounds.getCentre();
     repaint();

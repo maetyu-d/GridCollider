@@ -86,6 +86,7 @@ private:
             else if (menuIndex == 1)
             {
                 menu.addItem(10, "Mixer", true, mainComponent != nullptr && mainComponent->isMixerViewVisible());
+                menu.addItem(11, "Arrangement", true, mainComponent != nullptr && mainComponent->isArrangementViewVisible());
             }
             else if (menuIndex == 2)
             {
@@ -123,6 +124,8 @@ private:
                 mainComponent->menuSaveCompositionAs();
             else if (menuItemID == 10)
                 mainComponent->menuToggleMixerView();
+            else if (menuItemID == 11)
+                mainComponent->menuToggleArrangementView();
             else if (menuItemID >= exampleMenuBaseId && menuItemID < exampleMenuBaseId + exampleFiles.size())
                 mainComponent->menuLoadExample(exampleFiles[menuItemID - exampleMenuBaseId]);
         }
