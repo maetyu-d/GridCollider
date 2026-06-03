@@ -102,10 +102,12 @@ private:
             {
                 const auto mixerVisible = mainComponent != nullptr && mainComponent->isMixerViewVisible();
                 const auto arrangementVisible = mainComponent != nullptr && mainComponent->isArrangementViewVisible();
-                menu.addItem(9, "Main", true, mainComponent != nullptr && ! mixerVisible && ! arrangementVisible);
+                const auto instrumentsVisible = mainComponent != nullptr && mainComponent->isInstrumentsViewVisible();
+                menu.addItem(9, "Main", true, mainComponent != nullptr && ! mixerVisible && ! arrangementVisible && ! instrumentsVisible);
                 menu.addSeparator();
                 menu.addItem(10, "Mixer", true, mixerVisible);
                 menu.addItem(11, "Arrangement", true, arrangementVisible);
+                menu.addItem(12, "Instruments", true, instrumentsVisible);
             }
             else if (menuIndex == 2)
             {
@@ -149,6 +151,8 @@ private:
                 mainComponent->menuToggleMixerView();
             else if (menuItemID == 11)
                 mainComponent->menuToggleArrangementView();
+            else if (menuItemID == 12)
+                mainComponent->menuToggleInstrumentsView();
             else if (menuItemID >= exampleMenuBaseId && menuItemID < exampleMenuBaseId + exampleFiles.size())
                 mainComponent->menuLoadExample(exampleFiles[menuItemID - exampleMenuBaseId]);
 

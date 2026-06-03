@@ -716,9 +716,11 @@ void forceBlackEditorText(juce::TextEditor& editor)
 MainComponent::MainComponent()
     : gridEditor(gridModel),
       transitionCodeEditor(transitionCodeDocument, &scCodeTokeniser),
-      laneScCodeEditor(laneScCodeDocument, &scCodeTokeniser)
+      laneScCodeEditor(laneScCodeDocument, &scCodeTokeniser),
+      instrumentCodeEditor(instrumentCodeDocument, &scCodeTokeniser)
 {
     setLookAndFeel(&minimalLookAndFeel);
+    initialiseDefaultInstrumentLayer();
 
     CompositionGrid firstGrid;
     firstGrid.snapshot = gridModel.createSnapshot();
@@ -760,6 +762,7 @@ MainComponent::MainComponent()
     configureLaneCodePane();
     configureMixerView();
     configureArrangementView();
+    configureInstrumentView();
     statusLog.append("GridCollider ready");
     statusLog.append("OSC target: " + oscOutput.getEndpointDescription());
 
@@ -780,6 +783,7 @@ MainComponent::~MainComponent()
     stopTimer();
     transitionCodeDocument.removeListener(&transitionCodeDocumentListener);
     laneScCodeDocument.removeListener(&laneScCodeDocumentListener);
+    instrumentCodeDocument.removeListener(&instrumentCodeDocumentListener);
     setLookAndFeel(nullptr);
     transportEngine.stop();
     stateGraph.removeKeyListener(this);
@@ -841,6 +845,7 @@ void MainComponent::menuShowMainView()
 {
     mixerViewVisible = false;
     arrangementViewVisible = false;
+    instrumentsViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     showActiveLane();
@@ -852,6 +857,7 @@ void MainComponent::menuToggleMixerView()
 {
     mixerViewVisible = true;
     arrangementViewVisible = false;
+    instrumentsViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     refreshMixerView();
@@ -863,9 +869,22 @@ void MainComponent::menuToggleArrangementView()
 {
     arrangementViewVisible = true;
     mixerViewVisible = false;
+    instrumentsViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     refreshArrangementView();
+    resized();
+    repaint();
+}
+
+void MainComponent::menuToggleInstrumentsView()
+{
+    instrumentsViewVisible = true;
+    mixerViewVisible = false;
+    arrangementViewVisible = false;
+    activeSplitterDrag = SplitterDrag::none;
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+    refreshInstrumentView();
     resized();
     repaint();
 }
@@ -883,6 +902,11 @@ bool MainComponent::isMixerViewVisible() const noexcept
 bool MainComponent::isArrangementViewVisible() const noexcept
 {
     return arrangementViewVisible;
+}
+
+bool MainComponent::isInstrumentsViewVisible() const noexcept
+{
+    return instrumentsViewVisible;
 }
 
 MainComponent::MainLayout MainComponent::calculateMainLayout() const
@@ -918,7 +942,7 @@ MainComponent::MainLayout MainComponent::calculateMainLayout() const
 MainComponent::SplitterDrag MainComponent::splitterAt(const juce::Point<int> position) const
 {
     const auto layout = calculateMainLayout();
-    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible;
+    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible;
 
     if (optionalWorkspaceVisible)
         return SplitterDrag::none;
@@ -954,7 +978,7 @@ void MainComponent::paint(juce::Graphics& graphics)
 
     const auto layout = calculateMainLayout();
     auto header = layout.header;
-    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible;
+    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible;
 
     graphics.setColour(lewittPanel());
     graphics.fillRoundedRectangle(layout.header.toFloat(), panelRadius);
@@ -1067,7 +1091,7 @@ void MainComponent::resized()
     const auto layout = calculateMainLayout();
     auto header = layout.header;
     auto transitionArea = layout.transitionPane;
-    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible;
+    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible;
 
     auto lowerWorkspace = getLocalBounds().reduced(outerMargin);
     lowerWorkspace.removeFromTop(optionalWorkspaceVisible
@@ -1078,6 +1102,8 @@ void MainComponent::resized()
     {
         auto mixerArea = lowerWorkspace.reduced(0, 0);
 
+        instrumentView.setVisible(false);
+        instrumentCodeEditor.setVisible(false);
         stateGraph.setVisible(false);
         transitionCodeLabel.setVisible(false);
         transitionCodeBackdrop.setVisible(false);
@@ -1098,6 +1124,8 @@ void MainComponent::resized()
     {
         auto arrangementArea = lowerWorkspace.reduced(0, 0);
 
+        instrumentView.setVisible(false);
+        instrumentCodeEditor.setVisible(false);
         stateGraph.setVisible(false);
         transitionCodeLabel.setVisible(false);
         transitionCodeBackdrop.setVisible(false);
@@ -1114,8 +1142,82 @@ void MainComponent::resized()
         for (auto& button : gridTabButtons)
             button.setVisible(false);
     }
+    else if (instrumentsViewVisible)
+    {
+        auto instrumentArea = lowerWorkspace.reduced(0, 0);
+
+        stateGraph.setVisible(false);
+        transitionCodeLabel.setVisible(false);
+        transitionCodeBackdrop.setVisible(false);
+        transitionCodeEditor.setVisible(false);
+        mixerViewport.setVisible(false);
+        arrangementViewport.setVisible(false);
+        gridEditor.setVisible(false);
+        laneCodeBackdrop.setVisible(false);
+        laneScCodeEditor.setVisible(false);
+        for (auto& button : gridTabButtons)
+            button.setVisible(false);
+
+        instrumentView.setBounds(instrumentArea);
+        instrumentView.setVisible(true);
+        instrumentCodeEditor.setVisible(true);
+        instrumentView.toFront(false);
+        instrumentCodeEditor.toFront(false);
+
+        auto area = instrumentView.getLocalBounds().reduced(24);
+        instrumentViewTitleLabel.setBounds(area.removeFromTop(28));
+        area.removeFromTop(12);
+
+        auto topControls = area.removeFromTop(36);
+        instrumentSelector.setBounds(topControls.removeFromLeft(230));
+        topControls.removeFromLeft(10);
+        instrumentNameEditor.setBounds(topControls.removeFromLeft(220));
+        topControls.removeFromLeft(10);
+        newInstrumentButton.setBounds(topControls.removeFromLeft(90));
+        topControls.removeFromLeft(8);
+        deleteInstrumentButton.setBounds(topControls.removeFromLeft(90));
+        topControls.removeFromLeft(8);
+        saveInstrumentButton.setBounds(topControls.removeFromLeft(90));
+        topControls.removeFromLeft(8);
+        compileInstrumentButton.setBounds(topControls.removeFromLeft(110));
+
+        area.removeFromTop(18);
+        auto columns = area;
+        auto mapArea = columns.removeFromLeft(360);
+        columns.removeFromLeft(22);
+        auto codeArea = columns;
+
+        instrumentMapLabel.setBounds(mapArea.removeFromTop(22));
+        mapArea.removeFromTop(8);
+        const auto rowHeight = 28;
+        const auto rowGap = 5;
+        auto applyButtonArea = mapArea.removeFromBottom(34);
+        mapArea.removeFromBottom(10);
+        instrumentMapViewport.setBounds(mapArea);
+        instrumentMapContent.setBounds(0,
+                                       0,
+                                       juce::jmax(260, mapArea.getWidth() - instrumentMapViewport.getScrollBarThickness()),
+                                       instrumentChannelCount * (rowHeight + rowGap));
+        auto contentArea = instrumentMapContent.getLocalBounds().reduced(0, 0);
+
+        for (int channel = 0; channel < instrumentChannelCount; ++channel)
+        {
+            auto row = contentArea.removeFromTop(rowHeight);
+            instrumentChannelLabels[static_cast<std::size_t>(channel)].setBounds(row.removeFromLeft(58));
+            row.removeFromLeft(8);
+            instrumentChannelSelectors[static_cast<std::size_t>(channel)].setBounds(row.removeFromLeft(180));
+            contentArea.removeFromTop(rowGap);
+        }
+
+        applyInstrumentMapButton.setBounds(applyButtonArea.removeFromLeft(180));
+        instrumentCodeLabel.setBounds(codeArea.removeFromTop(22));
+        codeArea.removeFromTop(8);
+        instrumentCodeEditor.setBounds(codeArea);
+    }
     else
     {
+        instrumentView.setVisible(false);
+        instrumentCodeEditor.setVisible(false);
         stateGraph.setVisible(true);
         stateGraph.setBounds(layout.statePane);
         stateGraph.fitToView();
@@ -1462,7 +1564,12 @@ void MainComponent::prepareToPlay(const int samplesPerBlockExpected, const doubl
         juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<MainComponent>(this)]
         {
             if (safeThis != nullptr)
+            {
+                safeThis->compileEditableDefaultSynthDefs();
+                safeThis->compileUserInstruments();
+                safeThis->applyChannelMappingsToEngine();
                 safeThis->compileScLanesForAllStates();
+            }
         });
     }
     else
@@ -2014,6 +2121,31 @@ juce::var MainComponent::serialiseComposition() const
     root->setProperty("activeLane", activeGridSlot);
     root->setProperty("masterLevel", masterLevel);
 
+    juce::Array<juce::var> channelMapArray;
+    for (const auto& instrument : channelInstrumentMap)
+        channelMapArray.add(instrument);
+    root->setProperty("channelInstrumentMap", channelMapArray);
+
+    juce::Array<juce::var> userInstrumentArray;
+    for (const auto& instrument : userInstruments)
+    {
+        auto instrumentObject = std::make_unique<juce::DynamicObject>();
+        instrumentObject->setProperty("name", instrument.name);
+        instrumentObject->setProperty("code", instrument.code);
+        userInstrumentArray.add(juce::var(instrumentObject.release()));
+    }
+    root->setProperty("userInstruments", userInstrumentArray);
+
+    juce::Array<juce::var> defaultInstrumentArray;
+    for (const auto& instrument : defaultInstruments)
+    {
+        auto instrumentObject = std::make_unique<juce::DynamicObject>();
+        instrumentObject->setProperty("name", instrument.name);
+        instrumentObject->setProperty("code", instrument.code);
+        defaultInstrumentArray.add(juce::var(instrumentObject.release()));
+    }
+    root->setProperty("defaultSynthDefs", defaultInstrumentArray);
+
     juce::Array<juce::var> statesArray;
 
     for (const auto& state : compositionStates)
@@ -2066,6 +2198,74 @@ juce::Result MainComponent::restoreComposition(const juce::var& document)
     const auto* statesVar = root->getProperty("states").getArray();
     if (statesVar == nullptr || statesVar->isEmpty())
         return juce::Result::fail("Composition has no states");
+
+    initialiseDefaultInstrumentLayer();
+
+    if (const auto* mapVar = root->getProperty("channelInstrumentMap").getArray())
+    {
+        for (int channel = 0; channel < juce::jmin(instrumentChannelCount, mapVar->size()); ++channel)
+        {
+            auto instrument = mapVar->getReference(channel).toString().trim();
+            if (instrument.isNotEmpty())
+                channelInstrumentMap[static_cast<std::size_t>(channel)] = instrument;
+        }
+    }
+
+    if (const auto* instrumentVar = root->getProperty("userInstruments").getArray())
+    {
+        std::vector<UserInstrument> loadedInstruments;
+        loadedInstruments.reserve(static_cast<std::size_t>(instrumentVar->size()));
+
+        for (const auto& entry : *instrumentVar)
+        {
+            const auto* object = entry.getDynamicObject();
+            if (object == nullptr)
+                continue;
+
+            auto name = object->getProperty("name").toString().retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_").trim();
+            auto code = object->getProperty("code").toString();
+
+            if (name.isEmpty())
+                name = "gc_user_" + juce::String(static_cast<int>(loadedInstruments.size()) + 1).paddedLeft('0', 2);
+
+            if (code.isEmpty())
+                code = createDefaultUserInstrumentCode(name);
+
+            loadedInstruments.push_back({ name, code });
+        }
+
+        if (! loadedInstruments.empty())
+            userInstruments = std::move(loadedInstruments);
+    }
+
+    if (const auto* defaultVar = root->getProperty("defaultSynthDefs").getArray())
+    {
+        for (const auto& entry : *defaultVar)
+        {
+            const auto* object = entry.getDynamicObject();
+            if (object == nullptr)
+                continue;
+
+            const auto name = object->getProperty("name").toString().retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_").trim();
+            const auto code = object->getProperty("code").toString();
+
+            if (name.isEmpty() || code.isEmpty())
+                continue;
+
+            for (auto& instrument : defaultInstruments)
+            {
+                if (instrument.name.equalsIgnoreCase(name))
+                {
+                    instrument.code = code;
+                    break;
+                }
+            }
+        }
+    }
+
+    selectedUserInstrumentIndex = userInstruments.empty() ? -1 : 0;
+    selectedDefaultInstrumentIndex = defaultInstruments.empty() ? -1 : 0;
+    selectedInstrumentLaneReferenceIndex = -1;
 
     std::vector<CompositionState> loadedStates;
     loadedStates.reserve(static_cast<std::size_t>(juce::jmin(maximumCompositionStates, statesVar->size())));
@@ -2196,7 +2396,11 @@ void MainComponent::loadCompositionFile(const juce::File& file)
         updateTransportControls();
         updateGridSlotControls();
         showActiveTransitionCode();
+        compileEditableDefaultSynthDefs();
+        compileUserInstruments();
         compileScLanesForAllStates();
+        applyChannelMappingsToEngine();
+        refreshInstrumentView();
         refreshMixerView();
         gridEditor.fitToView();
         statusLog.append("Loaded composition: " + file.getFileName());
@@ -2220,6 +2424,17 @@ void MainComponent::saveCompositionFile(juce::File file)
 
     storeActiveGridSlot();
     storeActiveTransitionCode();
+    storeActiveInstrumentEditor();
+    if (instrumentsViewVisible)
+    {
+        for (int channel = 0; channel < instrumentChannelCount; ++channel)
+        {
+            auto name = instrumentChannelSelectors[static_cast<std::size_t>(channel)].getText().trim();
+            if (name.isNotEmpty())
+                channelInstrumentMap[static_cast<std::size_t>(channel)] = name;
+        }
+        applyChannelMappingsToEngine();
+    }
 
     juce::var document;
     {
@@ -3384,6 +3599,634 @@ void MainComponent::refreshArrangementView()
     const auto contentHeight = juce::jmax(arrangementViewport.getHeight(), 560);
     arrangementContent.setBounds(0, 0, contentWidth, contentHeight);
     arrangementContent.setArrangement(std::move(states), std::move(edges), selectedIndex);
+}
+
+void MainComponent::initialiseDefaultInstrumentLayer()
+{
+    const auto defaults = EmbeddedScAudioEngine::getDefaultChannelInstruments();
+    for (int channel = 0; channel < instrumentChannelCount; ++channel)
+        channelInstrumentMap[static_cast<std::size_t>(channel)] = channel < defaults.size() ? defaults[channel] : "tone";
+
+    userInstruments.clear();
+    defaultInstruments.clear();
+    for (const auto& name : EmbeddedScAudioEngine::getDefaultSynthDefNames())
+        defaultInstruments.push_back({ name, EmbeddedScAudioEngine::getDefaultSynthDefSource(name) });
+
+    userInstruments.push_back({ "gc_user_tone", createDefaultUserInstrumentCode("gc_user_tone") });
+    selectedDefaultInstrumentIndex = defaultInstruments.empty() ? -1 : 0;
+    selectedUserInstrumentIndex = 0;
+    selectedInstrumentLaneReferenceIndex = -1;
+}
+
+juce::String MainComponent::createDefaultUserInstrumentCode(const juce::String& name) const
+{
+    const auto safeName = name.trim().isNotEmpty() ? name.trim() : "gc_user_tone";
+    return "SynthDef(\\"
+        + safeName
+        + R"SC(, { |out = 0, pitch = 60, amp = 0.18, sustain = 0.45, pan = 0|
+    var freq = pitch.midicps;
+    var env = EnvGen.kr(Env.perc(0.008, sustain.max(0.04), curve: -3), doneAction: 2);
+    var sig = SinOsc.ar(freq) * env * amp;
+    Out.ar(out, Pan2.ar(sig, pan));
+});
+)SC";
+}
+
+void MainComponent::configureInstrumentView()
+{
+    addAndMakeVisible(instrumentView);
+    instrumentView.setVisible(false);
+    instrumentView.setOpaque(false);
+
+    for (auto* component : { static_cast<juce::Component*>(&instrumentViewTitleLabel),
+                             static_cast<juce::Component*>(&instrumentSelector),
+                             static_cast<juce::Component*>(&instrumentNameEditor),
+                             static_cast<juce::Component*>(&newInstrumentButton),
+                             static_cast<juce::Component*>(&deleteInstrumentButton),
+                             static_cast<juce::Component*>(&saveInstrumentButton),
+                             static_cast<juce::Component*>(&compileInstrumentButton),
+                             static_cast<juce::Component*>(&applyInstrumentMapButton),
+                             static_cast<juce::Component*>(&instrumentCodeLabel),
+                             static_cast<juce::Component*>(&instrumentMapLabel),
+                             static_cast<juce::Component*>(&instrumentMapViewport),
+                             static_cast<juce::Component*>(&instrumentCodeEditor) })
+        instrumentView.addAndMakeVisible(component);
+
+    instrumentMapViewport.setViewedComponent(&instrumentMapContent, false);
+    instrumentMapViewport.setScrollBarsShown(true, false);
+    instrumentMapViewport.setScrollBarThickness(8);
+
+    for (int channel = 0; channel < instrumentChannelCount; ++channel)
+    {
+        instrumentMapContent.addAndMakeVisible(instrumentChannelLabels[static_cast<std::size_t>(channel)]);
+        instrumentMapContent.addAndMakeVisible(instrumentChannelSelectors[static_cast<std::size_t>(channel)]);
+    }
+
+    instrumentViewTitleLabel.setText("Instruments", juce::dontSendNotification);
+    instrumentCodeLabel.setText("SynthDef", juce::dontSendNotification);
+    instrumentMapLabel.setText("Channel Map", juce::dontSendNotification);
+    newInstrumentButton.setButtonText("New");
+    deleteInstrumentButton.setButtonText("Delete");
+    saveInstrumentButton.setButtonText("Save");
+    compileInstrumentButton.setButtonText("Compile");
+    applyInstrumentMapButton.setButtonText("Apply Map");
+    instrumentNameEditor.setSelectAllWhenFocused(true);
+
+    for (int channel = 0; channel < instrumentChannelCount; ++channel)
+    {
+        instrumentChannelLabels[static_cast<std::size_t>(channel)].setText("CH " + juce::String(channel).paddedLeft('0', 2), juce::dontSendNotification);
+        instrumentChannelSelectors[static_cast<std::size_t>(channel)].setEditableText(true);
+        instrumentChannelSelectors[static_cast<std::size_t>(channel)].setTextWhenNothingSelected("instrument");
+        instrumentChannelSelectors[static_cast<std::size_t>(channel)].onChange = [this]
+        {
+            if (! updatingInstrumentView)
+                applyChannelInstrumentEditors();
+        };
+    }
+
+    instrumentSelector.onChange = [this]
+    {
+        if (updatingInstrumentView)
+            return;
+
+        selectInstrumentEditorTarget(instrumentSelector.getSelectedId());
+    };
+    instrumentNameEditor.onReturnKey = [this] { storeActiveInstrumentEditor(); refreshInstrumentView(); };
+    instrumentNameEditor.onFocusLost = [this] { storeActiveInstrumentEditor(); refreshInstrumentView(); };
+    newInstrumentButton.onClick = [this] { addUserInstrument(); };
+    deleteInstrumentButton.onClick = [this] { deleteSelectedUserInstrument(); };
+    saveInstrumentButton.onClick = [this] { saveSelectedInstrument(); };
+    compileInstrumentButton.onClick = [this] { compileSelectedUserInstrument(); };
+    applyInstrumentMapButton.onClick = [this] { applyChannelInstrumentEditors(); };
+
+    instrumentCodeEditor.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
+    instrumentCodeEditor.setTabSize(4, true);
+    instrumentCodeEditor.setScrollbarThickness(8);
+    instrumentCodeDocumentListener.setCallback([this]
+    {
+        if (updatingInstrumentView)
+            return;
+
+        if (selectedInstrumentLaneReferenceIndex >= 0)
+        {
+            storeActiveLaneInstrument();
+        }
+        else if (selectedDefaultInstrumentIndex >= 0 && selectedDefaultInstrumentIndex < static_cast<int>(defaultInstruments.size()))
+        {
+            defaultInstruments[static_cast<std::size_t>(selectedDefaultInstrumentIndex)].code = instrumentCodeDocument.getAllContent();
+            userInstrumentCodeDirty = true;
+        }
+        else if (selectedUserInstrumentIndex >= 0 && selectedUserInstrumentIndex < static_cast<int>(userInstruments.size()))
+        {
+            userInstruments[static_cast<std::size_t>(selectedUserInstrumentIndex)].code = instrumentCodeDocument.getAllContent();
+            userInstrumentCodeDirty = true;
+        }
+    });
+    instrumentCodeDocument.addListener(&instrumentCodeDocumentListener);
+
+    styleInstrumentView();
+    refreshInstrumentView();
+}
+
+void MainComponent::styleInstrumentView()
+{
+    const auto panel = juce::Colour::fromRGB(34, 35, 36);
+    const auto field = juce::Colour::fromRGB(24, 25, 26);
+    const auto text = lewittInk();
+    const auto outline = lewittLine().withAlpha(0.62f);
+
+    for (auto* label : { &instrumentViewTitleLabel, &instrumentCodeLabel, &instrumentMapLabel })
+    {
+        label->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), label == &instrumentViewTitleLabel ? 20.0f : 13.0f, juce::Font::bold));
+        label->setColour(juce::Label::textColourId, text);
+    }
+
+    for (auto& label : instrumentChannelLabels)
+    {
+        label.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold));
+        label.setJustificationType(juce::Justification::centredRight);
+        label.setColour(juce::Label::textColourId, text.withAlpha(0.76f));
+    }
+
+    for (auto* button : { &newInstrumentButton, &deleteInstrumentButton, &saveInstrumentButton, &compileInstrumentButton, &applyInstrumentMapButton })
+    {
+        button->setColour(juce::TextButton::buttonColourId, panel);
+        button->setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
+        button->setColour(juce::TextButton::textColourOffId, text);
+        button->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    }
+
+    instrumentSelector.setColour(juce::ComboBox::backgroundColourId, panel);
+    instrumentSelector.setColour(juce::ComboBox::outlineColourId, outline);
+    instrumentSelector.setColour(juce::ComboBox::textColourId, text);
+    instrumentSelector.setColour(juce::PopupMenu::backgroundColourId, panel);
+    instrumentSelector.setColour(juce::PopupMenu::textColourId, text);
+    instrumentMapViewport.setColour(juce::ScrollBar::backgroundColourId, field);
+    instrumentMapViewport.setColour(juce::ScrollBar::thumbColourId, lewittBlue());
+
+    instrumentNameEditor.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
+    instrumentNameEditor.setColour(juce::TextEditor::backgroundColourId, field);
+    instrumentNameEditor.setColour(juce::TextEditor::outlineColourId, outline);
+    instrumentNameEditor.setColour(juce::TextEditor::focusedOutlineColourId, lewittBlue());
+    instrumentNameEditor.setColour(juce::TextEditor::highlightColourId, lewittBlue().withAlpha(0.35f));
+    forceBlackEditorText(instrumentNameEditor);
+
+    for (auto& selector : instrumentChannelSelectors)
+    {
+        selector.setColour(juce::ComboBox::backgroundColourId, field);
+        selector.setColour(juce::ComboBox::outlineColourId, outline);
+        selector.setColour(juce::ComboBox::focusedOutlineColourId, lewittBlue());
+        selector.setColour(juce::ComboBox::textColourId, text);
+        selector.setColour(juce::ComboBox::arrowColourId, text.withAlpha(0.82f));
+        selector.setColour(juce::PopupMenu::backgroundColourId, panel);
+        selector.setColour(juce::PopupMenu::textColourId, text);
+        selector.setColour(juce::PopupMenu::highlightedBackgroundColourId, lewittBlue().withAlpha(0.82f));
+        selector.setColour(juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+    }
+
+    instrumentCodeEditor.setColour(juce::CodeEditorComponent::backgroundColourId, field);
+    instrumentCodeEditor.setColour(juce::CodeEditorComponent::defaultTextColourId, text);
+    instrumentCodeEditor.setColour(juce::CodeEditorComponent::highlightColourId, lewittBlue().withAlpha(0.34f));
+    instrumentCodeEditor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, juce::Colour::fromRGB(31, 32, 33));
+    instrumentCodeEditor.setColour(juce::CodeEditorComponent::lineNumberTextId, text.withAlpha(0.52f));
+    instrumentCodeEditor.setColour(juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB(35, 36, 37));
+    instrumentCodeEditor.setColour(juce::ScrollBar::thumbColourId, lewittBlue());
+    instrumentCodeEditor.setColourScheme(scCodeTokeniser.getDefaultColourScheme());
+}
+
+void MainComponent::refreshInstrumentView()
+{
+    updatingInstrumentView = true;
+
+    instrumentSelector.clear(juce::dontSendNotification);
+    instrumentLaneReferences.clear();
+
+    if (! defaultInstruments.empty())
+    {
+        instrumentSelector.addSectionHeading("Default SynthDefs");
+
+        for (int index = 0; index < static_cast<int>(defaultInstruments.size()); ++index)
+            instrumentSelector.addItem(defaultInstruments[static_cast<std::size_t>(index)].name, instrumentDefaultComboBaseId + index);
+    }
+
+    if (! userInstruments.empty())
+    {
+        if (! defaultInstruments.empty())
+            instrumentSelector.addSeparator();
+        instrumentSelector.addSectionHeading("Custom SynthDefs");
+    }
+
+    for (int index = 0; index < static_cast<int>(userInstruments.size()); ++index)
+        instrumentSelector.addItem(userInstruments[static_cast<std::size_t>(index)].name, index + 1);
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        for (int stateIndex = 0; stateIndex < static_cast<int>(compositionStates.size()); ++stateIndex)
+        {
+            const auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+
+            for (int laneIndex = 0; laneIndex < static_cast<int>(state.grids.size()); ++laneIndex)
+            {
+                const auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+
+                if (lane.kind != CompositionGrid::Kind::supercollider)
+                    continue;
+
+                const auto code = lane.scCode.isEmpty() ? createDefaultScLaneCode(stateIndex + 1, laneIndex + 1) : lane.scCode;
+                const auto synthName = lane.scSynthName.isNotEmpty()
+                                           ? lane.scSynthName
+                                           : getSynthDefNameFromSource(code, stateIndex + 1, laneIndex + 1);
+                const auto label = "S" + juce::String(stateIndex + 1).paddedLeft('0', 2)
+                    + " L" + juce::String(laneIndex + 1).paddedLeft('0', 2)
+                    + "  " + synthName;
+                instrumentLaneReferences.push_back({ stateIndex, laneIndex, label, synthName });
+            }
+        }
+    }
+
+    if (! instrumentLaneReferences.empty())
+    {
+        instrumentSelector.addSeparator();
+        instrumentSelector.addSectionHeading("Lane SynthDefs");
+
+        for (int index = 0; index < static_cast<int>(instrumentLaneReferences.size()); ++index)
+            instrumentSelector.addItem(instrumentLaneReferences[static_cast<std::size_t>(index)].label, instrumentLaneComboBaseId + index);
+    }
+
+    if (selectedUserInstrumentIndex < 0 && ! userInstruments.empty())
+        selectedUserInstrumentIndex = 0;
+    if (selectedDefaultInstrumentIndex < 0 && ! defaultInstruments.empty() && selectedInstrumentLaneReferenceIndex < 0)
+        selectedDefaultInstrumentIndex = 0;
+    selectedDefaultInstrumentIndex = juce::jlimit(-1, static_cast<int>(defaultInstruments.size()) - 1, selectedDefaultInstrumentIndex);
+    selectedUserInstrumentIndex = juce::jlimit(-1, static_cast<int>(userInstruments.size()) - 1, selectedUserInstrumentIndex);
+
+    if (selectedInstrumentLaneReferenceIndex >= static_cast<int>(instrumentLaneReferences.size()))
+        selectedInstrumentLaneReferenceIndex = -1;
+
+    if (selectedInstrumentLaneReferenceIndex >= 0)
+    {
+        const auto& reference = instrumentLaneReferences[static_cast<std::size_t>(selectedInstrumentLaneReferenceIndex)];
+        juce::String code;
+        juce::String synthName = reference.synthName;
+
+        {
+            const std::lock_guard lock(gridRuntimeMutex);
+            if (reference.stateIndex >= 0 && reference.stateIndex < static_cast<int>(compositionStates.size()))
+            {
+                const auto& state = compositionStates[static_cast<std::size_t>(reference.stateIndex)];
+                if (reference.laneIndex >= 0 && reference.laneIndex < static_cast<int>(state.grids.size()))
+                {
+                    const auto& lane = state.grids[static_cast<std::size_t>(reference.laneIndex)];
+                    code = lane.scCode.isEmpty()
+                               ? createDefaultScLaneCode(reference.stateIndex + 1, reference.laneIndex + 1)
+                               : lane.scCode;
+                    synthName = lane.scSynthName.isNotEmpty()
+                                    ? lane.scSynthName
+                                    : getSynthDefNameFromSource(code, reference.stateIndex + 1, reference.laneIndex + 1);
+                }
+            }
+        }
+
+        instrumentSelector.setSelectedId(instrumentLaneComboBaseId + selectedInstrumentLaneReferenceIndex, juce::dontSendNotification);
+        instrumentNameEditor.setText(synthName, juce::dontSendNotification);
+        instrumentNameEditor.setEnabled(false);
+        instrumentCodeDocument.replaceAllContent(code);
+        instrumentCodeLabel.setText("Lane SynthDef", juce::dontSendNotification);
+    }
+    else if (selectedDefaultInstrumentIndex >= 0)
+    {
+        const auto& instrument = defaultInstruments[static_cast<std::size_t>(selectedDefaultInstrumentIndex)];
+        instrumentSelector.setSelectedId(instrumentDefaultComboBaseId + selectedDefaultInstrumentIndex, juce::dontSendNotification);
+        instrumentNameEditor.setText(instrument.name, juce::dontSendNotification);
+        instrumentNameEditor.setEnabled(false);
+        instrumentCodeDocument.replaceAllContent(instrument.code);
+        instrumentCodeLabel.setText("Default SynthDef", juce::dontSendNotification);
+    }
+    else if (selectedUserInstrumentIndex >= 0)
+    {
+        const auto& instrument = userInstruments[static_cast<std::size_t>(selectedUserInstrumentIndex)];
+        instrumentSelector.setSelectedId(selectedUserInstrumentIndex + 1, juce::dontSendNotification);
+        instrumentNameEditor.setText(instrument.name, juce::dontSendNotification);
+        instrumentNameEditor.setEnabled(true);
+        instrumentCodeDocument.replaceAllContent(instrument.code);
+        instrumentCodeLabel.setText("Custom SynthDef", juce::dontSendNotification);
+    }
+    else
+    {
+        instrumentNameEditor.clear();
+        instrumentNameEditor.setEnabled(false);
+        instrumentCodeDocument.replaceAllContent({});
+        instrumentCodeLabel.setText("SynthDef", juce::dontSendNotification);
+    }
+
+    juce::StringArray channelOptions;
+    for (const auto& instrument : defaultInstruments)
+        channelOptions.addIfNotAlreadyThere(instrument.name);
+    for (const auto& instrument : userInstruments)
+        channelOptions.addIfNotAlreadyThere(instrument.name);
+    for (const auto& reference : instrumentLaneReferences)
+        if (reference.synthName.isNotEmpty())
+            channelOptions.addIfNotAlreadyThere(reference.synthName);
+
+    channelOptions.sort(true);
+
+    for (int channel = 0; channel < instrumentChannelCount; ++channel)
+    {
+        auto& selector = instrumentChannelSelectors[static_cast<std::size_t>(channel)];
+        selector.clear(juce::dontSendNotification);
+
+        int itemId = 1;
+        for (const auto& option : channelOptions)
+            selector.addItem(option, itemId++);
+
+        selector.setText(channelInstrumentMap[static_cast<std::size_t>(channel)], juce::dontSendNotification);
+    }
+
+    deleteInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex < 0 && selectedDefaultInstrumentIndex < 0 && selectedUserInstrumentIndex >= 0);
+    saveInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
+    compileInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
+    updatingInstrumentView = false;
+}
+
+void MainComponent::storeActiveInstrumentEditor()
+{
+    if (selectedInstrumentLaneReferenceIndex >= 0)
+        storeActiveLaneInstrument();
+    else if (selectedDefaultInstrumentIndex >= 0)
+        storeActiveDefaultInstrument();
+    else
+        storeActiveUserInstrument();
+}
+
+void MainComponent::storeActiveDefaultInstrument()
+{
+    if (selectedDefaultInstrumentIndex < 0 || selectedDefaultInstrumentIndex >= static_cast<int>(defaultInstruments.size()))
+        return;
+
+    auto& instrument = defaultInstruments[static_cast<std::size_t>(selectedDefaultInstrumentIndex)];
+    instrument.code = instrumentCodeDocument.getAllContent();
+}
+
+void MainComponent::storeActiveUserInstrument()
+{
+    if (selectedUserInstrumentIndex < 0 || selectedUserInstrumentIndex >= static_cast<int>(userInstruments.size()))
+        return;
+
+    auto& instrument = userInstruments[static_cast<std::size_t>(selectedUserInstrumentIndex)];
+    auto name = instrumentNameEditor.getText().retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_").trim();
+    if (name.isEmpty())
+        name = "gc_user_" + juce::String(selectedUserInstrumentIndex + 1).paddedLeft('0', 2);
+
+    const auto oldName = instrument.name;
+    auto code = instrumentCodeDocument.getAllContent();
+    if (oldName.isNotEmpty() && name != oldName)
+        code = code.replace("SynthDef(\\" + oldName, "SynthDef(\\" + name);
+
+    instrument.name = name;
+    instrument.code = code;
+}
+
+void MainComponent::storeActiveLaneInstrument()
+{
+    if (selectedInstrumentLaneReferenceIndex < 0 || selectedInstrumentLaneReferenceIndex >= static_cast<int>(instrumentLaneReferences.size()))
+        return;
+
+    const auto reference = instrumentLaneReferences[static_cast<std::size_t>(selectedInstrumentLaneReferenceIndex)];
+    const auto code = instrumentCodeDocument.getAllContent();
+    const auto synthDefs = extractSynthDefs(code, reference.stateIndex + 1, reference.laneIndex + 1);
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        if (reference.stateIndex < 0 || reference.stateIndex >= static_cast<int>(compositionStates.size()))
+            return;
+
+        auto& state = compositionStates[static_cast<std::size_t>(reference.stateIndex)];
+
+        if (reference.laneIndex < 0 || reference.laneIndex >= static_cast<int>(state.grids.size()))
+            return;
+
+        auto& lane = state.grids[static_cast<std::size_t>(reference.laneIndex)];
+        if (lane.kind != CompositionGrid::Kind::supercollider)
+            return;
+
+        lane.scCode = code;
+        lane.scSynthName = synthDefs.front().name;
+        lane.scCodeDirty = true;
+    }
+
+    if (reference.stateIndex == activeStateIndex && reference.laneIndex == activeGridSlot)
+    {
+        updatingLaneCodeEditor = true;
+        laneScCodeDocument.replaceAllContent(code);
+        updatingLaneCodeEditor = false;
+    }
+}
+
+void MainComponent::selectInstrumentEditorTarget(const int comboId)
+{
+    storeActiveInstrumentEditor();
+
+    if (comboId >= instrumentLaneComboBaseId)
+    {
+        selectedInstrumentLaneReferenceIndex = juce::jlimit(-1,
+                                                            static_cast<int>(instrumentLaneReferences.size()) - 1,
+                                                            comboId - instrumentLaneComboBaseId);
+        selectedDefaultInstrumentIndex = -1;
+        selectedUserInstrumentIndex = juce::jlimit(-1,
+                                                   static_cast<int>(userInstruments.size()) - 1,
+                                                   selectedUserInstrumentIndex);
+    }
+    else if (comboId >= instrumentDefaultComboBaseId)
+    {
+        selectedInstrumentLaneReferenceIndex = -1;
+        selectedDefaultInstrumentIndex = juce::jlimit(-1,
+                                                      static_cast<int>(defaultInstruments.size()) - 1,
+                                                      comboId - instrumentDefaultComboBaseId);
+        selectedUserInstrumentIndex = juce::jlimit(-1,
+                                                   static_cast<int>(userInstruments.size()) - 1,
+                                                   selectedUserInstrumentIndex);
+    }
+    else
+    {
+        selectedInstrumentLaneReferenceIndex = -1;
+        selectedDefaultInstrumentIndex = -1;
+        selectedUserInstrumentIndex = juce::jlimit(-1, static_cast<int>(userInstruments.size()) - 1, comboId - 1);
+    }
+
+    userInstrumentCodeDirty = false;
+    refreshInstrumentView();
+}
+
+void MainComponent::selectUserInstrument(const int index)
+{
+    storeActiveInstrumentEditor();
+    selectedInstrumentLaneReferenceIndex = -1;
+    selectedDefaultInstrumentIndex = -1;
+    selectedUserInstrumentIndex = juce::jlimit(-1, static_cast<int>(userInstruments.size()) - 1, index);
+    userInstrumentCodeDirty = false;
+    refreshInstrumentView();
+}
+
+void MainComponent::addUserInstrument()
+{
+    storeActiveInstrumentEditor();
+    const auto index = static_cast<int>(userInstruments.size()) + 1;
+    const auto name = "gc_user_" + juce::String(index).paddedLeft('0', 2);
+    userInstruments.push_back({ name, createDefaultUserInstrumentCode(name) });
+    selectedInstrumentLaneReferenceIndex = -1;
+    selectedDefaultInstrumentIndex = -1;
+    selectedUserInstrumentIndex = static_cast<int>(userInstruments.size()) - 1;
+    refreshInstrumentView();
+}
+
+void MainComponent::deleteSelectedUserInstrument()
+{
+    if (selectedUserInstrumentIndex < 0 || selectedUserInstrumentIndex >= static_cast<int>(userInstruments.size()))
+        return;
+
+    userInstruments.erase(userInstruments.begin() + selectedUserInstrumentIndex);
+    selectedUserInstrumentIndex = juce::jmin(selectedUserInstrumentIndex, static_cast<int>(userInstruments.size()) - 1);
+    refreshInstrumentView();
+}
+
+void MainComponent::saveSelectedInstrument()
+{
+    storeActiveInstrumentEditor();
+    refreshInstrumentView();
+    statusLog.append(selectedInstrumentLaneReferenceIndex >= 0 ? "Saved lane SynthDef"
+                                                               : selectedDefaultInstrumentIndex >= 0 ? "Saved default SynthDef"
+                                                                                                     : "Saved instrument SynthDef");
+    repaint();
+}
+
+void MainComponent::compileSelectedUserInstrument()
+{
+    storeActiveInstrumentEditor();
+
+    if (! embeddedScAudio.isReady())
+    {
+        statusLog.append("Instrument compile skipped: audio is not ready");
+        repaint();
+        return;
+    }
+
+    juce::String nameForLog;
+    juce::String code;
+    int seedIndex = selectedUserInstrumentIndex + 1;
+
+    if (selectedInstrumentLaneReferenceIndex >= 0 && selectedInstrumentLaneReferenceIndex < static_cast<int>(instrumentLaneReferences.size()))
+    {
+        const auto& reference = instrumentLaneReferences[static_cast<std::size_t>(selectedInstrumentLaneReferenceIndex)];
+        nameForLog = reference.label;
+        code = instrumentCodeDocument.getAllContent();
+        seedIndex = reference.laneIndex + 1;
+    }
+    else if (selectedDefaultInstrumentIndex >= 0 && selectedDefaultInstrumentIndex < static_cast<int>(defaultInstruments.size()))
+    {
+        const auto& instrument = defaultInstruments[static_cast<std::size_t>(selectedDefaultInstrumentIndex)];
+        nameForLog = instrument.name;
+        code = instrument.code;
+        seedIndex = selectedDefaultInstrumentIndex + 1;
+    }
+    else if (selectedUserInstrumentIndex >= 0 && selectedUserInstrumentIndex < static_cast<int>(userInstruments.size()))
+    {
+        const auto& instrument = userInstruments[static_cast<std::size_t>(selectedUserInstrumentIndex)];
+        nameForLog = instrument.name;
+        code = instrument.code;
+    }
+    else
+    {
+        return;
+    }
+
+    int loaded = 0;
+
+    for (const auto& synthDef : extractSynthDefs(code, 0, seedIndex))
+    {
+        if (embeddedScAudio.loadSynthDef(synthDef.name, synthDef.source))
+            ++loaded;
+        else
+            statusLog.append("Instrument load failed: " + embeddedScAudio.getLastError());
+    }
+
+    applyChannelMappingsToEngine();
+
+    if (loaded > 0)
+        statusLog.append("Loaded SynthDef: " + nameForLog);
+
+    userInstrumentCodeDirty = false;
+    refreshInstrumentView();
+    repaint();
+}
+
+void MainComponent::compileEditableDefaultSynthDefs()
+{
+    if (! embeddedScAudio.isReady())
+        return;
+
+    int loaded = 0;
+    for (int index = 0; index < static_cast<int>(defaultInstruments.size()); ++index)
+    {
+        const auto& instrument = defaultInstruments[static_cast<std::size_t>(index)];
+        if (instrument.code.isEmpty())
+            continue;
+
+        for (const auto& synthDef : extractSynthDefs(instrument.code, 0, index + 1))
+            if (embeddedScAudio.loadSynthDef(synthDef.name, synthDef.source))
+                ++loaded;
+    }
+
+    if (loaded > 0)
+        statusLog.append("Loaded " + juce::String(loaded) + " editable default SynthDef" + (loaded == 1 ? "" : "s"));
+}
+
+void MainComponent::compileUserInstruments()
+{
+    if (! embeddedScAudio.isReady())
+        return;
+
+    int loaded = 0;
+    int userIndex = 0;
+    for (const auto& instrument : userInstruments)
+    {
+        ++userIndex;
+        if (instrument.code.isEmpty())
+            continue;
+
+        for (const auto& synthDef : extractSynthDefs(instrument.code, 0, userIndex))
+            if (embeddedScAudio.loadSynthDef(synthDef.name, synthDef.source))
+                ++loaded;
+    }
+
+    applyChannelMappingsToEngine();
+
+    if (loaded > 0)
+        statusLog.append("Loaded " + juce::String(loaded) + " user instrument SynthDef" + (loaded == 1 ? "" : "s"));
+}
+
+void MainComponent::applyChannelInstrumentEditors()
+{
+    for (int channel = 0; channel < instrumentChannelCount; ++channel)
+    {
+        auto name = instrumentChannelSelectors[static_cast<std::size_t>(channel)].getText().trim();
+        if (name.isEmpty())
+            name = "tone";
+
+        channelInstrumentMap[static_cast<std::size_t>(channel)] = name;
+    }
+
+    applyChannelMappingsToEngine();
+    refreshInstrumentView();
+    statusLog.append("Updated channel instrument map");
+    repaint();
+}
+
+void MainComponent::applyChannelMappingsToEngine()
+{
+    for (int channel = 0; channel < instrumentChannelCount; ++channel)
+        embeddedScAudio.setChannelInstrument(channel, channelInstrumentMap[static_cast<std::size_t>(channel)]);
 }
 
 void MainComponent::applyMixerControl(const int stateIndex, const int laneIndex, const int mixerControlIndex, const bool force)

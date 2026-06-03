@@ -41,9 +41,11 @@ public:
     void menuShowMainView();
     void menuToggleMixerView();
     void menuToggleArrangementView();
+    void menuToggleInstrumentsView();
     void menuLoadExample(const juce::File& file);
     [[nodiscard]] bool isMixerViewVisible() const noexcept;
     [[nodiscard]] bool isArrangementViewVisible() const noexcept;
+    [[nodiscard]] bool isInstrumentsViewVisible() const noexcept;
 
     void paint(juce::Graphics& graphics) override;
     void resized() override;
@@ -431,6 +433,25 @@ private:
     void configureArrangementView();
     void toggleArrangementView();
     void refreshArrangementView();
+    void configureInstrumentView();
+    void styleInstrumentView();
+    void refreshInstrumentView();
+    void storeActiveInstrumentEditor();
+    void storeActiveUserInstrument();
+    void storeActiveDefaultInstrument();
+    void storeActiveLaneInstrument();
+    void selectInstrumentEditorTarget(int comboId);
+    void selectUserInstrument(int index);
+    void addUserInstrument();
+    void deleteSelectedUserInstrument();
+    void saveSelectedInstrument();
+    void compileSelectedUserInstrument();
+    void compileEditableDefaultSynthDefs();
+    void compileUserInstruments();
+    void applyChannelInstrumentEditors();
+    void applyChannelMappingsToEngine();
+    void initialiseDefaultInstrumentLayer();
+    [[nodiscard]] juce::String createDefaultUserInstrumentCode(const juce::String& name) const;
     void applyMixerControl(int stateIndex, int laneIndex, int mixerControlIndex, bool force = false);
     void applyMasterLevel();
     void applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane, float transitionGain = 1.0f) const;
@@ -596,16 +617,35 @@ private:
     SuperColliderCodeTokeniser scCodeTokeniser;
     juce::CodeDocument transitionCodeDocument;
     juce::CodeDocument laneScCodeDocument;
+    juce::CodeDocument instrumentCodeDocument;
     CodeDocumentChangeListener transitionCodeDocumentListener;
     CodeDocumentChangeListener laneScCodeDocumentListener;
+    CodeDocumentChangeListener instrumentCodeDocumentListener;
     juce::CodeEditorComponent transitionCodeEditor;
     juce::CodeEditorComponent laneScCodeEditor;
+    juce::CodeEditorComponent instrumentCodeEditor;
 
     static constexpr int maximumMixerChannels = 129;
+    static constexpr int instrumentChannelCount = EmbeddedScAudioEngine::channelCount;
     juce::Viewport mixerViewport;
     MixerContentComponent mixerContent;
     juce::Viewport arrangementViewport;
     ArrangementContentComponent arrangementContent;
+    juce::Component instrumentView;
+    juce::Label instrumentViewTitleLabel;
+    juce::ComboBox instrumentSelector;
+    juce::TextEditor instrumentNameEditor;
+    juce::TextButton newInstrumentButton;
+    juce::TextButton deleteInstrumentButton;
+    juce::TextButton saveInstrumentButton;
+    juce::TextButton compileInstrumentButton;
+    juce::TextButton applyInstrumentMapButton;
+    juce::Label instrumentCodeLabel;
+    juce::Label instrumentMapLabel;
+    juce::Viewport instrumentMapViewport;
+    juce::Component instrumentMapContent;
+    std::array<juce::Label, instrumentChannelCount> instrumentChannelLabels;
+    std::array<juce::ComboBox, instrumentChannelCount> instrumentChannelSelectors;
     juce::Label mixerLabel;
     std::array<juce::Label, maximumMixerChannels> mixerChannelLabels;
     std::array<juce::Slider, maximumMixerChannels> mixerLevelSliders;
@@ -674,6 +714,7 @@ private:
     std::mutex exportCaptureMutex;
     bool mixerViewVisible = false;
     bool arrangementViewVisible = false;
+    bool instrumentsViewVisible = false;
     std::uint64_t uiFrameCounter = 0;
     double lastTimerCallbackMs = 0.0;
     double timerDeltaMs = 0.0;
@@ -683,6 +724,29 @@ private:
     juce::StringArray eventMonitorLines;
     std::vector<CompositionState> compositionStates;
     std::optional<CompositionState> copiedState;
+    struct UserInstrument
+    {
+        juce::String name;
+        juce::String code;
+    };
+    std::vector<UserInstrument> userInstruments;
+    std::vector<UserInstrument> defaultInstruments;
+    std::array<juce::String, instrumentChannelCount> channelInstrumentMap {};
+    struct LaneInstrumentReference
+    {
+        int stateIndex = -1;
+        int laneIndex = -1;
+        juce::String label;
+        juce::String synthName;
+    };
+    std::vector<LaneInstrumentReference> instrumentLaneReferences;
+    static constexpr int instrumentDefaultComboBaseId = 5000;
+    static constexpr int instrumentLaneComboBaseId = 10000;
+    int selectedDefaultInstrumentIndex = -1;
+    int selectedUserInstrumentIndex = -1;
+    int selectedInstrumentLaneReferenceIndex = -1;
+    bool updatingInstrumentView = false;
+    bool userInstrumentCodeDirty = false;
     int activeStateIndex = 0;
     int activeGridSlot = 0;
     std::uint64_t activeStateEntryFrame = 0;

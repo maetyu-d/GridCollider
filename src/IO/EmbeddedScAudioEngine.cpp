@@ -117,68 +117,197 @@ std::vector<char> buildOscMessage(const juce::String& address, const std::vector
     return packet;
 }
 
-juce::String midiToFreqExpression()
-{
-    return "freq = pitch.midicps;";
-}
-
 juce::String starterSynthSource(const juce::String& name)
 {
     if (name == "kick")
-        return "SynthDef(\\kick, { |out = 0, pitch = 36, amp = 0.7, sustain = 0.25, pan = 0| var env, freq, sig; env = EnvGen.kr(Env.perc(0.001, sustain), doneAction: 2); freq = EnvGen.kr(Env([pitch.midicps * 2.4, pitch.midicps], [0.05], -4)); sig = SinOsc.ar(freq) * env * amp; Out.ar(out, Pan2.ar((sig * 2.5).tanh, pan)); })";
+        return R"SC(SynthDef(\kick, { |out = 0, pitch = 36, amp = 0.7, sustain = 0.25, pan = 0|
+    var env, freq, sig;
+    env = EnvGen.kr(Env.perc(0.001, sustain), doneAction: 2);
+    freq = EnvGen.kr(Env([pitch.midicps * 2.4, pitch.midicps], [0.05], -4));
+    sig = SinOsc.ar(freq) * env * amp;
+    Out.ar(out, Pan2.ar((sig * 2.5).tanh, pan));
+}))SC";
 
     if (name == "snare")
-        return "SynthDef(\\snare, { |out = 0, pitch = 60, amp = 0.45, sustain = 0.18, pan = 0| var env, sig; env = EnvGen.kr(Env.perc(0.001, sustain), doneAction: 2); sig = HPF.ar(WhiteNoise.ar, 1500) * env * amp; Out.ar(out, Pan2.ar(sig.tanh, pan)); })";
+        return R"SC(SynthDef(\snare, { |out = 0, pitch = 60, amp = 0.45, sustain = 0.18, pan = 0|
+    var env, sig;
+    env = EnvGen.kr(Env.perc(0.001, sustain), doneAction: 2);
+    sig = HPF.ar(WhiteNoise.ar, 1500) * env * amp;
+    Out.ar(out, Pan2.ar(sig.tanh, pan));
+}))SC";
 
     if (name == "hat")
-        return "SynthDef(\\hat, { |out = 0, pitch = 80, amp = 0.16, sustain = 0.035, pan = 0| var env, sig; env = EnvGen.kr(Env.perc(0.0005, sustain.max(0.009), curve: -10), doneAction: 2); sig = HPF.ar(WhiteNoise.ar, pitch.midicps.max(8200)); sig = BPF.ar(sig, pitch.midicps.max(9000), 0.42); Out.ar(out, Pan2.ar(sig * env * amp, pan)); })";
+        return R"SC(SynthDef(\hat, { |out = 0, pitch = 80, amp = 0.16, sustain = 0.035, pan = 0|
+    var env, sig;
+    env = EnvGen.kr(Env.perc(0.0005, sustain.max(0.009), curve: -10), doneAction: 2);
+    sig = HPF.ar(WhiteNoise.ar, pitch.midicps.max(8200));
+    sig = BPF.ar(sig, pitch.midicps.max(9000), 0.42);
+    Out.ar(out, Pan2.ar(sig * env * amp, pan));
+}))SC";
 
     if (name == "bass")
-        return "SynthDef(\\bass, { |out = 0, pitch = 36, amp = 0.34, sustain = 0.8, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.linen(0.018, sustain.max(0.18), 0.18, curve: -3), doneAction: 2); sig = (Saw.ar(freq) * 0.55) + (SinOsc.ar(freq * 0.5) * 0.45); sig = LPF.ar(sig, (freq * 5).clip(90, 2400)) * env * amp; Out.ar(out, Pan2.ar(sig.softclip, pan)); })";
+        return R"SC(SynthDef(\bass, { |out = 0, pitch = 36, amp = 0.34, sustain = 0.8, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.linen(0.018, sustain.max(0.18), 0.18, curve: -3), doneAction: 2);
+    sig = (Saw.ar(freq) * 0.55) + (SinOsc.ar(freq * 0.5) * 0.45);
+    sig = LPF.ar(sig, (freq * 5).clip(90, 2400)) * env * amp;
+    Out.ar(out, Pan2.ar(sig.softclip, pan));
+}))SC";
 
     if (name == "grain")
-        return "SynthDef(\\grain, { |out = 0, pitch = 60, amp = 0.18, sustain = 1.2, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.linen(0.03, sustain.max(0.2), 0.55, curve: -2), doneAction: 2); sig = SinOsc.ar(freq * LFNoise1.kr(4).range(0.997, 1.006)) * env * amp; sig = BPF.ar(sig, (freq * 2.2).clip(180, 7000), 0.22) + (sig * 0.28); Out.ar(out, Pan2.ar(sig, pan)); })";
+        return R"SC(SynthDef(\grain, { |out = 0, pitch = 60, amp = 0.18, sustain = 1.2, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.linen(0.03, sustain.max(0.2), 0.55, curve: -2), doneAction: 2);
+    sig = SinOsc.ar(freq * LFNoise1.kr(4).range(0.997, 1.006)) * env * amp;
+    sig = BPF.ar(sig, (freq * 2.2).clip(180, 7000), 0.22) + (sig * 0.28);
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 
     if (name == "drone")
-        return "SynthDef(\\drone, { |out = 0, pitch = 48, amp = 0.20, sustain = 4.0, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.linen(0.45, sustain.max(1.0), 1.5, curve: -3), doneAction: 2); sig = Mix(Saw.ar(freq * [0.5, 1, 1.002, 1.5])) * 0.18; sig = RLPF.ar(sig, (freq * 3).clip(120, 4200), 0.24) * env * amp; Out.ar(out, Pan2.ar(sig, pan)); })";
+        return R"SC(SynthDef(\drone, { |out = 0, pitch = 48, amp = 0.20, sustain = 4.0, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.linen(0.45, sustain.max(1.0), 1.5, curve: -3), doneAction: 2);
+    sig = Mix(Saw.ar(freq * [0.5, 1, 1.002, 1.5])) * 0.18;
+    sig = RLPF.ar(sig, (freq * 3).clip(120, 4200), 0.24) * env * amp;
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 
     if (name == "pluck")
-        return "SynthDef(\\pluck, { |out = 0, pitch = 60, amp = 0.18, sustain = 0.13, pan = 0| var freq, env, snap, body, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.perc(0.0008, sustain.max(0.028), curve: -8), doneAction: 2); snap = BPF.ar(WhiteNoise.ar, (freq * 7.5).clip(1600, 12000), 0.035) * 0.85; body = SinOsc.ar(freq * 2.0, 0, 0.09); sig = HPF.ar(snap + body, 550) * env * amp; Out.ar(out, Pan2.ar(sig, pan)); })";
+        return R"SC(SynthDef(\pluck, { |out = 0, pitch = 60, amp = 0.18, sustain = 0.13, pan = 0|
+    var freq, env, snap, body, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.perc(0.0008, sustain.max(0.028), curve: -8), doneAction: 2);
+    snap = BPF.ar(WhiteNoise.ar, (freq * 7.5).clip(1600, 12000), 0.035) * 0.85;
+    body = SinOsc.ar(freq * 2.0, 0, 0.09);
+    sig = HPF.ar(snap + body, 550) * env * amp;
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 
     if (name == "pad")
-        return "SynthDef(\\pad, { |out = 0, pitch = 60, amp = 0.18, sustain = 3.2, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.linen(0.38, sustain.max(0.5), 1.1, curve: -3), doneAction: 2); sig = Mix(Pulse.ar(freq * [0.5, 1, 1.005], [0.38, 0.5, 0.62])) * 0.16; sig = RLPF.ar(sig, (freq * 2.6).clip(180, 5200), 0.28) * env * amp; Out.ar(out, Pan2.ar(sig, pan)); })";
+        return R"SC(SynthDef(\pad, { |out = 0, pitch = 60, amp = 0.18, sustain = 3.2, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.linen(0.38, sustain.max(0.5), 1.1, curve: -3), doneAction: 2);
+    sig = Mix(Pulse.ar(freq * [0.5, 1, 1.005], [0.38, 0.5, 0.62])) * 0.16;
+    sig = RLPF.ar(sig, (freq * 2.6).clip(180, 5200), 0.28) * env * amp;
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 
     if (name == "bell")
-        return "SynthDef(\\bell, { |out = 0, pitch = 72, amp = 0.14, sustain = 1.65, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.perc(0.004, sustain.max(0.28), curve: -5), doneAction: 2); sig = SinOsc.ar(freq * [1, 2.73, 3.91, 5.47], 0, [0.64, 0.30, 0.15, 0.08]).sum; sig = HPF.ar(sig * env * amp, 520); Out.ar(out, Pan2.ar(sig, pan)); })";
+        return R"SC(SynthDef(\bell, { |out = 0, pitch = 72, amp = 0.14, sustain = 1.65, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.perc(0.004, sustain.max(0.28), curve: -5), doneAction: 2);
+    sig = SinOsc.ar(freq * [1, 2.73, 3.91, 5.47], 0, [0.64, 0.30, 0.15, 0.08]).sum;
+    sig = HPF.ar(sig * env * amp, 520);
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 
     if (name == "fm")
-        return "SynthDef(\\fm, { |out = 0, pitch = 60, amp = 0.14, sustain = 0.42, pan = 0| var freq, env, index, mod, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.perc(0.001, sustain.max(0.06), curve: -6), doneAction: 2); index = EnvGen.kr(Env([7.2, 0.35], [sustain.max(0.07)], -7)); mod = SinOsc.ar(freq * 3.005) * freq * index; sig = SinOsc.ar((freq * 1.5) + mod) * env * amp; sig = BPF.ar(sig, (freq * 6).clip(700, 7800), 0.34) + (HPF.ar(sig, 900) * 0.35); Out.ar(out, Pan2.ar(sig, pan)); })";
+        return R"SC(SynthDef(\fm, { |out = 0, pitch = 60, amp = 0.14, sustain = 0.42, pan = 0|
+    var freq, env, index, mod, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.perc(0.001, sustain.max(0.06), curve: -6), doneAction: 2);
+    index = EnvGen.kr(Env([7.2, 0.35], [sustain.max(0.07)], -7));
+    mod = SinOsc.ar(freq * 3.005) * freq * index;
+    sig = SinOsc.ar((freq * 1.5) + mod) * env * amp;
+    sig = BPF.ar(sig, (freq * 6).clip(700, 7800), 0.34) + (HPF.ar(sig, 900) * 0.35);
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 
     if (name == "acid")
-        return "SynthDef(\\acid, { |out = 0, pitch = 48, amp = 0.12, sustain = 0.20, pan = 0| var freq, env, sweep, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.perc(0.002, sustain.max(0.035), curve: -8), doneAction: 2); sweep = EnvGen.kr(Env([freq * 18, freq * 2.6], [sustain.max(0.04)], -7)); sig = RLPF.ar(Pulse.ar(freq, 0.18), sweep.clip(420, 9800), 0.09); sig = HPF.ar(sig * env * amp, 140).softclip; Out.ar(out, Pan2.ar(sig, pan)); })";
+        return R"SC(SynthDef(\acid, { |out = 0, pitch = 48, amp = 0.12, sustain = 0.20, pan = 0|
+    var freq, env, sweep, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.perc(0.002, sustain.max(0.035), curve: -8), doneAction: 2);
+    sweep = EnvGen.kr(Env([freq * 18, freq * 2.6], [sustain.max(0.04)], -7));
+    sig = RLPF.ar(Pulse.ar(freq, 0.18), sweep.clip(420, 9800), 0.09);
+    sig = HPF.ar(sig * env * amp, 140).softclip;
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 
     if (name == "string")
-        return "SynthDef(\\string, { |out = 0, pitch = 60, amp = 0.20, sustain = 2.8, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.linen(0.08, sustain.max(0.3), 0.7, curve: -2), doneAction: 2); sig = Mix(VarSaw.ar(freq * [1, 1.003, 1.5], 0, 0.38)) * 0.22; sig = BLowPass.ar(sig, (freq * 4).clip(240, 4800), 0.55) * env * amp; Out.ar(out, Pan2.ar(sig, pan)); })";
+        return R"SC(SynthDef(\string, { |out = 0, pitch = 60, amp = 0.20, sustain = 2.8, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.linen(0.08, sustain.max(0.3), 0.7, curve: -2), doneAction: 2);
+    sig = Mix(VarSaw.ar(freq * [1, 1.003, 1.5], 0, 0.38)) * 0.22;
+    sig = BLowPass.ar(sig, (freq * 4).clip(240, 4800), 0.55) * env * amp;
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 
     if (name == "noise")
-        return "SynthDef(\\noise, { |out = 0, pitch = 72, amp = 0.10, sustain = 0.070, pan = 0| var env, centre, sig; env = EnvGen.kr(Env.perc(0.002, sustain.max(0.018), curve: -8), doneAction: 2); centre = pitch.midicps.clip(5200, 11800); sig = BPF.ar(WhiteNoise.ar, centre, 0.16) + (HPF.ar(WhiteNoise.ar, 9000) * 0.18); Out.ar(out, Pan2.ar(sig * env * amp, pan)); })";
+        return R"SC(SynthDef(\noise, { |out = 0, pitch = 72, amp = 0.10, sustain = 0.070, pan = 0|
+    var env, centre, sig;
+    env = EnvGen.kr(Env.perc(0.002, sustain.max(0.018), curve: -8), doneAction: 2);
+    centre = pitch.midicps.clip(5200, 11800);
+    sig = BPF.ar(WhiteNoise.ar, centre, 0.16) + (HPF.ar(WhiteNoise.ar, 9000) * 0.18);
+    Out.ar(out, Pan2.ar(sig * env * amp, pan));
+}))SC";
 
     if (name == "sub")
-        return "SynthDef(\\sub, { |out = 0, pitch = 36, amp = 0.26, sustain = 1.0, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.linen(0.012, sustain.max(0.14), 0.25, curve: -3), doneAction: 2); sig = SinOsc.ar(freq * 0.5) + (SinOsc.ar(freq) * 0.42); sig = LPF.ar(sig, 180) * env * amp; Out.ar(out, Pan2.ar(sig.softclip, pan)); })";
+        return R"SC(SynthDef(\sub, { |out = 0, pitch = 36, amp = 0.26, sustain = 1.0, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.linen(0.012, sustain.max(0.14), 0.25, curve: -3), doneAction: 2);
+    sig = SinOsc.ar(freq * 0.5) + (SinOsc.ar(freq) * 0.42);
+    sig = LPF.ar(sig, 180) * env * amp;
+    Out.ar(out, Pan2.ar(sig.softclip, pan));
+}))SC";
 
     if (name == "lead")
-        return "SynthDef(\\lead, { |out = 0, pitch = 60, amp = 0.15, sustain = 0.58, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.linen(0.012, sustain.max(0.09), 0.12, curve: -4), doneAction: 2); sig = VarSaw.ar(freq * [1, 1.004], 0, [0.20, 0.64]).sum * 0.20; sig = RLPF.ar(sig, (freq * 7.2).clip(1300, 9200), 0.20) * env * amp; Out.ar(out, Pan2.ar(sig, pan)); })";
+        return R"SC(SynthDef(\lead, { |out = 0, pitch = 60, amp = 0.15, sustain = 0.58, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.linen(0.012, sustain.max(0.09), 0.12, curve: -4), doneAction: 2);
+    sig = VarSaw.ar(freq * [1, 1.004], 0, [0.20, 0.64]).sum * 0.20;
+    sig = RLPF.ar(sig, (freq * 7.2).clip(1300, 9200), 0.20) * env * amp;
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 
     if (name == "perc")
-        return "SynthDef(\\perc, { |out = 0, pitch = 60, amp = 0.24, sustain = 0.20, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.perc(0.0015, sustain.max(0.03), curve: -6), doneAction: 2); sig = (SinOsc.ar(freq * 1.5) * 0.6) + (BPF.ar(WhiteNoise.ar, freq * 6, 0.18) * 0.4); Out.ar(out, Pan2.ar(sig * env * amp, pan)); })";
+        return R"SC(SynthDef(\perc, { |out = 0, pitch = 60, amp = 0.24, sustain = 0.20, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.perc(0.0015, sustain.max(0.03), curve: -6), doneAction: 2);
+    sig = (SinOsc.ar(freq * 1.5) * 0.6) + (BPF.ar(WhiteNoise.ar, freq * 6, 0.18) * 0.4);
+    Out.ar(out, Pan2.ar(sig * env * amp, pan));
+}))SC";
 
     if (name == "metal")
-        return "SynthDef(\\metal, { |out = 0, pitch = 72, amp = 0.15, sustain = 1.4, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.perc(0.004, sustain.max(0.18), curve: -4), doneAction: 2); sig = Klank.ar(`[freq * [1, 1.41, 2.07, 2.83, 3.77], [1, 0.5, 0.32, 0.18, 0.11], sustain.max(0.2) * [1, 0.8, 0.6, 0.45, 0.35]], PinkNoise.ar(0.012)); Out.ar(out, Pan2.ar(sig * env * amp, pan)); })";
+        return R"SC(SynthDef(\metal, { |out = 0, pitch = 72, amp = 0.15, sustain = 1.4, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.perc(0.004, sustain.max(0.18), curve: -4), doneAction: 2);
+    sig = Klank.ar(`[
+        freq * [1, 1.41, 2.07, 2.83, 3.77],
+        [1, 0.5, 0.32, 0.18, 0.11],
+        sustain.max(0.2) * [1, 0.8, 0.6, 0.45, 0.35]
+    ], PinkNoise.ar(0.012));
+    Out.ar(out, Pan2.ar(sig * env * amp, pan));
+}))SC";
 
     if (name == "choir")
-        return "SynthDef(\\choir, { |out = 0, pitch = 60, amp = 0.18, sustain = 3.5, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.linen(0.25, sustain.max(0.6), 1.2, curve: -3), doneAction: 2); sig = Mix(SinOsc.ar(freq * [0.5, 1, 1.5, 2.01], 0, [0.45, 0.38, 0.22, 0.10])); sig = RLPF.ar(sig, (freq * 3.4).clip(280, 5200), 0.42) * env * amp; Out.ar(out, Pan2.ar(sig, pan)); })";
+        return R"SC(SynthDef(\choir, { |out = 0, pitch = 60, amp = 0.18, sustain = 3.5, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.linen(0.25, sustain.max(0.6), 1.2, curve: -3), doneAction: 2);
+    sig = Mix(SinOsc.ar(freq * [0.5, 1, 1.5, 2.01], 0, [0.45, 0.38, 0.22, 0.10]));
+    sig = RLPF.ar(sig, (freq * 3.4).clip(280, 5200), 0.42) * env * amp;
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 
-    return "SynthDef(\\tone, { |out = 0, pitch = 60, amp = 0.26, sustain = 0.7, pan = 0| var freq, env, sig; " + midiToFreqExpression() + " env = EnvGen.kr(Env.linen(0.025, sustain.max(0.12), 0.24, curve: -3), doneAction: 2); sig = (SinOsc.ar(freq) * 0.82) + (Pulse.ar(freq * 0.5, 0.42) * 0.18); sig = RLPF.ar(sig, (freq * 4).clip(240, 6500), 0.38) * env * amp; Out.ar(out, Pan2.ar(sig, pan)); })";
+    return R"SC(SynthDef(\tone, { |out = 0, pitch = 60, amp = 0.26, sustain = 0.7, pan = 0|
+    var freq, env, sig;
+    freq = pitch.midicps;
+    env = EnvGen.kr(Env.linen(0.025, sustain.max(0.12), 0.24, curve: -3), doneAction: 2);
+    sig = (SinOsc.ar(freq) * 0.82) + (Pulse.ar(freq * 0.5, 0.42) * 0.18);
+    sig = RLPF.ar(sig, (freq * 4).clip(240, 6500), 0.38) * env * amp;
+    Out.ar(out, Pan2.ar(sig, pan));
+}))SC";
 }
 
 void debugLog(const juce::String& message)
@@ -261,6 +390,25 @@ juce::StringArray libraryCandidates(const char* envName, const juce::String& rel
     candidates.addIfNotAlreadyThere(alchemyRoot.getChildFile(relativeFromAlchemy).getFullPathName());
     candidates.addIfNotAlreadyThere(fileName);
     return candidates;
+}
+
+std::array<juce::String, EmbeddedScAudioEngine::channelCount> makeDefaultChannelPalette()
+{
+    return {
+        "tone", "bass", "drone", "grain",
+        "pluck", "pad", "bell", "fm",
+        "acid", "kick", "snare", "hat",
+        "string", "noise", "lead", "choir"
+    };
+}
+
+juce::StringArray defaultSynthDefNames()
+{
+    return {
+        "kick", "snare", "hat", "bass", "tone", "grain", "drone",
+        "pluck", "pad", "bell", "fm", "acid", "string", "noise",
+        "sub", "lead", "perc", "metal", "choir"
+    };
 }
 }
 
@@ -804,23 +952,45 @@ private:
 
             if (numeric)
             {
-                static constexpr std::array<const char*, 16> channelPalette {
-                    "tone", "bass", "drone", "grain",
-                    "pluck", "pad", "bell", "fm",
-                    "acid", "kick", "snare", "hat",
-                    "string", "noise", "lead", "choir"
-                };
-
                 const auto channel = channelText.getIntValue();
 
                 if (channel >= 0 && channel < static_cast<int>(channelPalette.size()))
-                    return synthForName(channelPalette[static_cast<std::size_t>(channel)]);
+                {
+                    juce::String mappedInstrument;
+                    {
+                        const juce::ScopedLock lock(channelPaletteLock);
+                        mappedInstrument = channelPalette[static_cast<std::size_t>(channel)];
+                    }
+
+                    if (mappedInstrument.isNotEmpty())
+                        return synthForName(mappedInstrument);
+                }
             }
         }
 
         return synthForName(fields.instrumentName);
     }
 
+public:
+    void setChannelInstrument(const int channel, const juce::String& instrumentName)
+    {
+        if (channel < 0 || channel >= static_cast<int>(channelPalette.size()))
+            return;
+
+        const juce::ScopedLock lock(channelPaletteLock);
+        channelPalette[static_cast<std::size_t>(channel)] = instrumentName.trim();
+    }
+
+    juce::String getChannelInstrument(const int channel) const
+    {
+        if (channel < 0 || channel >= static_cast<int>(channelPalette.size()))
+            return {};
+
+        const juce::ScopedLock lock(channelPaletteLock);
+        return channelPalette[static_cast<std::size_t>(channel)];
+    }
+
+private:
     float levelFor(const juce::String& instrument)
     {
         if (const auto iter = instrumentLevels.find(instrument); iter != instrumentLevels.end())
@@ -923,6 +1093,8 @@ private:
     std::map<juce::String, std::int32_t> activeNodeByInstrument;
     std::map<juce::String, float> instrumentLevels;
     std::map<juce::String, juce::String> loadedSynthNames;
+    mutable juce::CriticalSection channelPaletteLock;
+    std::array<juce::String, EmbeddedScAudioEngine::channelCount> channelPalette = makeDefaultChannelPalette();
     std::atomic<bool> ready { false };
     std::atomic<double> bpm { 120.0 };
     std::atomic<std::uint64_t> tick { 0 };
@@ -958,6 +1130,8 @@ private:
     void setTransport(double, std::uint64_t, bool) {}
     void setMasterLevel(float) {}
     bool loadSynthDef(const juce::String&, const juce::String&) { return false; }
+    void setChannelInstrument(int, const juce::String&) {}
+    juce::String getChannelInstrument(int) const { return {}; }
     bool isReady() const noexcept { return false; }
     juce::String getStatusText() const { return "EMBEDDED SC UNBUILT"; }
     juce::String getLastError() const { return lastError; }
@@ -1010,6 +1184,35 @@ void EmbeddedScAudioEngine::setMasterLevel(const float level)
 bool EmbeddedScAudioEngine::loadSynthDef(const juce::String& name, const juce::String& source)
 {
     return impl->loadSynthDef(name, source);
+}
+
+void EmbeddedScAudioEngine::setChannelInstrument(const int channel, const juce::String& instrumentName)
+{
+    impl->setChannelInstrument(channel, instrumentName);
+}
+
+juce::String EmbeddedScAudioEngine::getChannelInstrument(const int channel) const
+{
+    return impl->getChannelInstrument(channel);
+}
+
+juce::StringArray EmbeddedScAudioEngine::getDefaultChannelInstruments()
+{
+    juce::StringArray names;
+    for (const auto& name : makeDefaultChannelPalette())
+        names.add(name);
+
+    return names;
+}
+
+juce::StringArray EmbeddedScAudioEngine::getDefaultSynthDefNames()
+{
+    return defaultSynthDefNames();
+}
+
+juce::String EmbeddedScAudioEngine::getDefaultSynthDefSource(const juce::String& name)
+{
+    return starterSynthSource(instrumentFor(name.trim().toLowerCase()));
 }
 
 bool EmbeddedScAudioEngine::isReady() const noexcept
