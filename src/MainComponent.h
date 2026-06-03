@@ -445,6 +445,7 @@ private:
     void addUserInstrument();
     void deleteSelectedUserInstrument();
     void saveSelectedInstrument();
+    void resetSelectedDefaultInstrument();
     void compileSelectedUserInstrument();
     void compileEditableDefaultSynthDefs();
     void compileUserInstruments();
@@ -637,11 +638,13 @@ private:
     juce::TextEditor instrumentNameEditor;
     juce::TextButton newInstrumentButton;
     juce::TextButton deleteInstrumentButton;
+    juce::TextButton resetInstrumentButton;
     juce::TextButton saveInstrumentButton;
     juce::TextButton compileInstrumentButton;
     juce::TextButton applyInstrumentMapButton;
     juce::Label instrumentCodeLabel;
     juce::Label instrumentMapLabel;
+    juce::Label instrumentUsedByLabel;
     juce::Viewport instrumentMapViewport;
     juce::Component instrumentMapContent;
     std::array<juce::Label, instrumentChannelCount> instrumentChannelLabels;

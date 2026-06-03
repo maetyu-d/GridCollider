@@ -1177,6 +1177,8 @@ void MainComponent::resized()
         topControls.removeFromLeft(8);
         deleteInstrumentButton.setBounds(topControls.removeFromLeft(90));
         topControls.removeFromLeft(8);
+        resetInstrumentButton.setBounds(topControls.removeFromLeft(90));
+        topControls.removeFromLeft(8);
         saveInstrumentButton.setBounds(topControls.removeFromLeft(90));
         topControls.removeFromLeft(8);
         compileInstrumentButton.setBounds(topControls.removeFromLeft(110));
@@ -1210,7 +1212,9 @@ void MainComponent::resized()
         }
 
         applyInstrumentMapButton.setBounds(applyButtonArea.removeFromLeft(180));
-        instrumentCodeLabel.setBounds(codeArea.removeFromTop(22));
+        auto codeHeader = codeArea.removeFromTop(22);
+        instrumentUsedByLabel.setBounds(codeHeader.removeFromRight(juce::jmin(520, codeHeader.getWidth() / 2)));
+        instrumentCodeLabel.setBounds(codeHeader);
         codeArea.removeFromTop(8);
         instrumentCodeEditor.setBounds(codeArea);
     }
@@ -3643,11 +3647,13 @@ void MainComponent::configureInstrumentView()
                              static_cast<juce::Component*>(&instrumentNameEditor),
                              static_cast<juce::Component*>(&newInstrumentButton),
                              static_cast<juce::Component*>(&deleteInstrumentButton),
+                             static_cast<juce::Component*>(&resetInstrumentButton),
                              static_cast<juce::Component*>(&saveInstrumentButton),
                              static_cast<juce::Component*>(&compileInstrumentButton),
                              static_cast<juce::Component*>(&applyInstrumentMapButton),
                              static_cast<juce::Component*>(&instrumentCodeLabel),
                              static_cast<juce::Component*>(&instrumentMapLabel),
+                             static_cast<juce::Component*>(&instrumentUsedByLabel),
                              static_cast<juce::Component*>(&instrumentMapViewport),
                              static_cast<juce::Component*>(&instrumentCodeEditor) })
         instrumentView.addAndMakeVisible(component);
@@ -3667,6 +3673,7 @@ void MainComponent::configureInstrumentView()
     instrumentMapLabel.setText("Channel Map", juce::dontSendNotification);
     newInstrumentButton.setButtonText("New");
     deleteInstrumentButton.setButtonText("Delete");
+    resetInstrumentButton.setButtonText("Reset");
     saveInstrumentButton.setButtonText("Save");
     compileInstrumentButton.setButtonText("Compile");
     applyInstrumentMapButton.setButtonText("Apply Map");
@@ -3695,6 +3702,7 @@ void MainComponent::configureInstrumentView()
     instrumentNameEditor.onFocusLost = [this] { storeActiveInstrumentEditor(); refreshInstrumentView(); };
     newInstrumentButton.onClick = [this] { addUserInstrument(); };
     deleteInstrumentButton.onClick = [this] { deleteSelectedUserInstrument(); };
+    resetInstrumentButton.onClick = [this] { resetSelectedDefaultInstrument(); };
     saveInstrumentButton.onClick = [this] { saveSelectedInstrument(); };
     compileInstrumentButton.onClick = [this] { compileSelectedUserInstrument(); };
     applyInstrumentMapButton.onClick = [this] { applyChannelInstrumentEditors(); };
@@ -3735,11 +3743,13 @@ void MainComponent::styleInstrumentView()
     const auto text = lewittInk();
     const auto outline = lewittLine().withAlpha(0.62f);
 
-    for (auto* label : { &instrumentViewTitleLabel, &instrumentCodeLabel, &instrumentMapLabel })
+    for (auto* label : { &instrumentViewTitleLabel, &instrumentCodeLabel, &instrumentMapLabel, &instrumentUsedByLabel })
     {
         label->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), label == &instrumentViewTitleLabel ? 20.0f : 13.0f, juce::Font::bold));
         label->setColour(juce::Label::textColourId, text);
     }
+    instrumentUsedByLabel.setJustificationType(juce::Justification::centredRight);
+    instrumentUsedByLabel.setColour(juce::Label::textColourId, text.withAlpha(0.72f));
 
     for (auto& label : instrumentChannelLabels)
     {
@@ -3748,7 +3758,7 @@ void MainComponent::styleInstrumentView()
         label.setColour(juce::Label::textColourId, text.withAlpha(0.76f));
     }
 
-    for (auto* button : { &newInstrumentButton, &deleteInstrumentButton, &saveInstrumentButton, &compileInstrumentButton, &applyInstrumentMapButton })
+    for (auto* button : { &newInstrumentButton, &deleteInstrumentButton, &resetInstrumentButton, &saveInstrumentButton, &compileInstrumentButton, &applyInstrumentMapButton })
     {
         button->setColour(juce::TextButton::buttonColourId, panel);
         button->setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
@@ -3864,6 +3874,8 @@ void MainComponent::refreshInstrumentView()
     if (selectedInstrumentLaneReferenceIndex >= static_cast<int>(instrumentLaneReferences.size()))
         selectedInstrumentLaneReferenceIndex = -1;
 
+    juce::String selectedSynthName;
+
     if (selectedInstrumentLaneReferenceIndex >= 0)
     {
         const auto& reference = instrumentLaneReferences[static_cast<std::size_t>(selectedInstrumentLaneReferenceIndex)];
@@ -3893,6 +3905,7 @@ void MainComponent::refreshInstrumentView()
         instrumentNameEditor.setEnabled(false);
         instrumentCodeDocument.replaceAllContent(code);
         instrumentCodeLabel.setText("Lane SynthDef", juce::dontSendNotification);
+        selectedSynthName = synthName;
     }
     else if (selectedDefaultInstrumentIndex >= 0)
     {
@@ -3902,6 +3915,7 @@ void MainComponent::refreshInstrumentView()
         instrumentNameEditor.setEnabled(false);
         instrumentCodeDocument.replaceAllContent(instrument.code);
         instrumentCodeLabel.setText("Default SynthDef", juce::dontSendNotification);
+        selectedSynthName = instrument.name;
     }
     else if (selectedUserInstrumentIndex >= 0)
     {
@@ -3911,6 +3925,7 @@ void MainComponent::refreshInstrumentView()
         instrumentNameEditor.setEnabled(true);
         instrumentCodeDocument.replaceAllContent(instrument.code);
         instrumentCodeLabel.setText("Custom SynthDef", juce::dontSendNotification);
+        selectedSynthName = instrument.name;
     }
     else
     {
@@ -3943,7 +3958,24 @@ void MainComponent::refreshInstrumentView()
         selector.setText(channelInstrumentMap[static_cast<std::size_t>(channel)], juce::dontSendNotification);
     }
 
+    juce::StringArray usedBy;
+    if (selectedSynthName.isNotEmpty())
+    {
+        for (int channel = 0; channel < instrumentChannelCount; ++channel)
+            if (channelInstrumentMap[static_cast<std::size_t>(channel)].equalsIgnoreCase(selectedSynthName))
+                usedBy.add("CH " + juce::String(channel).paddedLeft('0', 2));
+
+        for (const auto& reference : instrumentLaneReferences)
+            if (reference.synthName.equalsIgnoreCase(selectedSynthName))
+                usedBy.add("S" + juce::String(reference.stateIndex + 1).paddedLeft('0', 2)
+                           + " L" + juce::String(reference.laneIndex + 1).paddedLeft('0', 2));
+    }
+
+    instrumentUsedByLabel.setText(usedBy.isEmpty() ? "unused" : "used by " + usedBy.joinIntoString(", "),
+                                  juce::dontSendNotification);
+
     deleteInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex < 0 && selectedDefaultInstrumentIndex < 0 && selectedUserInstrumentIndex >= 0);
+    resetInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex < 0 && selectedDefaultInstrumentIndex >= 0);
     saveInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
     compileInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
     updatingInstrumentView = false;
@@ -4098,6 +4130,26 @@ void MainComponent::saveSelectedInstrument()
     statusLog.append(selectedInstrumentLaneReferenceIndex >= 0 ? "Saved lane SynthDef"
                                                                : selectedDefaultInstrumentIndex >= 0 ? "Saved default SynthDef"
                                                                                                      : "Saved instrument SynthDef");
+    repaint();
+}
+
+void MainComponent::resetSelectedDefaultInstrument()
+{
+    if (selectedDefaultInstrumentIndex < 0 || selectedDefaultInstrumentIndex >= static_cast<int>(defaultInstruments.size()))
+        return;
+
+    auto& instrument = defaultInstruments[static_cast<std::size_t>(selectedDefaultInstrumentIndex)];
+    instrument.code = EmbeddedScAudioEngine::getDefaultSynthDefSource(instrument.name);
+
+    updatingInstrumentView = true;
+    instrumentCodeDocument.replaceAllContent(instrument.code);
+    updatingInstrumentView = false;
+
+    if (embeddedScAudio.isReady())
+        compileSelectedUserInstrument();
+
+    statusLog.append("Reset default SynthDef: " + instrument.name);
+    refreshInstrumentView();
     repaint();
 }
 
