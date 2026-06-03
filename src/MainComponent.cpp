@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <regex>
+#include <thread>
 
 namespace gridcollider
 {
@@ -384,10 +385,12 @@ void MainComponent::ArrangementContentComponent::paint(juce::Graphics& graphics)
                       titleRow,
                       juce::Justification::centredLeft);
 
-    auto timeline = bounds.removeFromTop(160).reduced(8, 0);
+    const auto timelineHeight = juce::jlimit(260, 420, bounds.getHeight() / 2);
+    auto timeline = bounds.removeFromTop(timelineHeight).reduced(8, 0);
     auto ruler = timeline.removeFromTop(24);
     auto blockArea = timeline.removeFromTop(76);
-    auto arcArea = timeline;
+    timeline.removeFromTop(20);
+    auto arcArea = timeline.removeFromTop(juce::jmax(130, timeline.getHeight() - 18));
 
     if (states.empty())
         return;
@@ -440,13 +443,19 @@ void MainComponent::ArrangementContentComponent::paint(juce::Graphics& graphics)
         if (edge.from < 0 || edge.to < 0 || edge.from >= static_cast<int>(blockBounds.size()) || edge.to >= static_cast<int>(blockBounds.size()))
             continue;
 
-        const auto from = blockBounds[static_cast<std::size_t>(edge.from)].getBottomLeft() + juce::Point<float>(blockBounds[static_cast<std::size_t>(edge.from)].getWidth() * 0.5f, 24.0f);
-        const auto to = blockBounds[static_cast<std::size_t>(edge.to)].getBottomLeft() + juce::Point<float>(blockBounds[static_cast<std::size_t>(edge.to)].getWidth() * 0.5f, 24.0f);
+        const auto from = blockBounds[static_cast<std::size_t>(edge.from)].getBottomLeft()
+                            + juce::Point<float>(blockBounds[static_cast<std::size_t>(edge.from)].getWidth() * 0.5f, 18.0f);
+        const auto to = blockBounds[static_cast<std::size_t>(edge.to)].getBottomLeft()
+                            + juce::Point<float>(blockBounds[static_cast<std::size_t>(edge.to)].getWidth() * 0.5f, 18.0f);
         const auto colour = states[static_cast<std::size_t>(edge.from)].colour.withAlpha(edge.weighted ? 0.52f : 0.34f);
         juce::Path path;
         path.startNewSubPath(from);
-        const auto depth = static_cast<float>(arcArea.getHeight()) * (0.25f + 0.18f * static_cast<float>(std::abs(edge.to - edge.from)));
-        path.quadraticTo((from.x + to.x) * 0.5f, static_cast<float>(arcArea.getY()) + depth, to.x, to.y);
+        const auto span = static_cast<float>(std::abs(edge.to - edge.from));
+        const auto hang = juce::jlimit(38.0f,
+                                       static_cast<float>(arcArea.getHeight()) - 18.0f,
+                                       48.0f + span * 28.0f);
+        const auto controlY = static_cast<float>(arcArea.getY()) + hang;
+        path.cubicTo(from.x, controlY, to.x, controlY, to.x, to.y);
         graphics.setColour(colour);
         graphics.strokePath(path, juce::PathStrokeType(edge.weighted ? 2.0f : 1.2f));
 
@@ -455,7 +464,7 @@ void MainComponent::ArrangementContentComponent::paint(juce::Graphics& graphics)
             const auto label = juce::String(juce::roundToInt(edge.chance * 100.0)) + "%";
             graphics.setColour(panel.withAlpha(0.92f));
             const auto labelBounds = juce::Rectangle<float>((from.x + to.x) * 0.5f - 18.0f,
-                                                            static_cast<float>(arcArea.getY()) + depth - 9.0f,
+                                                            controlY - 9.0f,
                                                             36.0f,
                                                             18.0f);
             graphics.fillRoundedRectangle(labelBounds, 8.0f);
@@ -599,10 +608,11 @@ MainComponent::MainComponent()
 
     configureTransport();
     setAudioChannels(0, 2);
-    startTimerHz(30);
+    startTimerHz(60);
 
     for (auto& meter : mixerMeterPeaks)
         meter.store(0.0f, std::memory_order_relaxed);
+    mixerMeterDisplay.fill(0.0f);
 
     setOpaque(true);
     setSize(1280, 900);
@@ -641,6 +651,35 @@ void MainComponent::menuSaveCompositionAs()
     showSaveCompositionDialog();
 }
 
+void MainComponent::menuExportStereoWav()
+{
+    if (exportCaptureActive.load(std::memory_order_acquire))
+    {
+        statusLog.append("WAV export already running");
+        repaint();
+        return;
+    }
+
+    auto* prompt = new juce::AlertWindow("Export Stereo WAV",
+                                         "Enter the duration to render, in seconds.",
+                                         juce::MessageBoxIconType::NoIcon);
+    prompt->addTextEditor("duration", "120", "Duration");
+    prompt->addButton("Export", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    prompt->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    prompt->enterModalState(true,
+                            juce::ModalCallbackFunction::create([safeThis = juce::Component::SafePointer<MainComponent>(this), prompt](const int result)
+                            {
+                                if (safeThis == nullptr || result != 1)
+                                    return;
+
+                                const auto durationSeconds = juce::jlimit(1.0,
+                                                                          3600.0,
+                                                                          prompt->getTextEditorContents("duration").getDoubleValue());
+                                safeThis->showExportWavDialog(durationSeconds > 0.0 ? durationSeconds : 120.0);
+                            }),
+                            true);
+}
+
 void MainComponent::menuShowMainView()
 {
     mixerViewVisible = false;
@@ -654,12 +693,24 @@ void MainComponent::menuShowMainView()
 
 void MainComponent::menuToggleMixerView()
 {
-    toggleMixerView();
+    mixerViewVisible = true;
+    arrangementViewVisible = false;
+    activeSplitterDrag = SplitterDrag::none;
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+    refreshMixerView();
+    resized();
+    repaint();
 }
 
 void MainComponent::menuToggleArrangementView()
 {
-    toggleArrangementView();
+    arrangementViewVisible = true;
+    mixerViewVisible = false;
+    activeSplitterDrag = SplitterDrag::none;
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+    refreshArrangementView();
+    resized();
+    repaint();
 }
 
 void MainComponent::menuLoadExample(const juce::File& file)
@@ -1217,22 +1268,35 @@ void MainComponent::timerCallback()
     }
 
     bool metersChanged = false;
-    for (auto& meter : mixerMeterPeaks)
+    for (int index = 0; index < maximumMixerChannels; ++index)
     {
-        const auto value = meter.load(std::memory_order_relaxed);
-        if (value <= 0.0001f)
-            continue;
+        auto& peak = mixerMeterPeaks[static_cast<std::size_t>(index)];
+        const auto raw = peak.exchange(0.0f, std::memory_order_acq_rel);
+        auto& display = mixerMeterDisplay[static_cast<std::size_t>(index)];
+        const auto target = juce::jlimit(0.0f, 1.0f, raw);
+        const auto deltaSeconds = static_cast<float>(juce::jlimit(1.0, 60.0, timerDeltaMs) / 1000.0);
+        const auto release = 1.0f - std::exp(-deltaSeconds / 0.105f);
+        const auto next = target >= display ? target : display + (target - display) * release;
+        const auto smoothed = target >= display ? next : juce::jmax(0.0f, next - 0.0012f);
 
-        meter.store(juce::jmax(0.0f, value * 0.88f - 0.003f), std::memory_order_relaxed);
-        metersChanged = true;
+        if (std::abs(smoothed - display) > 0.0005f || raw > 0.0005f)
+            metersChanged = true;
+
+        display = smoothed;
     }
 
     if (mixerViewVisible && metersChanged)
         refreshMixerMeters();
+
+    if (exportCaptureComplete.exchange(false, std::memory_order_acq_rel))
+        finishRealtimeWavExport();
 }
 
 void MainComponent::prepareToPlay(const int samplesPerBlockExpected, const double sampleRate)
 {
+    currentAudioSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    currentAudioBlockSize = samplesPerBlockExpected > 0 ? samplesPerBlockExpected : 512;
+
     if (embeddedScAudio.prepare(sampleRate, samplesPerBlockExpected, 2))
     {
         embeddedScAudio.setMasterLevel(masterLevel);
@@ -1257,6 +1321,7 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
                                     bufferToFill.numSamples);
     audioCallbackCounter.fetch_add(1, std::memory_order_relaxed);
     audioSampleCounter.fetch_add(static_cast<std::uint64_t>(bufferToFill.numSamples), std::memory_order_relaxed);
+
     embeddedScAudio.render(output);
 
     float peak = 0.0f;
@@ -1269,6 +1334,38 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
         const auto current = meter.load(std::memory_order_relaxed);
         if (peak > current)
             meter.store(juce::jlimit(0.0f, 1.0f, peak), std::memory_order_relaxed);
+    }
+
+    if (exportInProgress.load(std::memory_order_acquire))
+    {
+        const auto position = exportCaptureWritePosition.load(std::memory_order_relaxed);
+        const auto remaining = exportCaptureTargetSamples - position;
+
+        if (remaining > 0)
+        {
+            const auto samplesToCopy = static_cast<int>(juce::jmin<int64_t>(output.getNumSamples(), remaining));
+            const std::lock_guard lock(exportCaptureMutex);
+
+            if (exportCaptureBuffer != nullptr && position + samplesToCopy <= exportCaptureBuffer->getNumSamples())
+            {
+                for (int channel = 0; channel < 2; ++channel)
+                {
+                    const auto sourceChannel = juce::jmin(channel, output.getNumChannels() - 1);
+                    exportCaptureBuffer->copyFrom(channel,
+                                                  static_cast<int>(position),
+                                                  output,
+                                                  sourceChannel,
+                                                  0,
+                                                  samplesToCopy);
+                }
+            }
+
+            const auto nextPosition = position + samplesToCopy;
+            exportCaptureWritePosition.store(nextPosition, std::memory_order_release);
+
+            if (nextPosition >= exportCaptureTargetSamples)
+                exportCaptureComplete.store(true, std::memory_order_release);
+        }
     }
 }
 
@@ -1537,6 +1634,176 @@ void MainComponent::showSaveCompositionDialog()
                                  if (file != juce::File())
                                      safeThis->saveCompositionFile(file);
                              });
+}
+
+void MainComponent::showExportWavDialog(const double durationSeconds)
+{
+    const auto defaultName = currentCompositionFile != juce::File()
+                                 ? currentCompositionFile.getFileNameWithoutExtension() + ".wav"
+                                 : "GridCollider export.wav";
+    const auto start = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(defaultName);
+
+    fileChooser = std::make_unique<juce::FileChooser>("Export stereo WAV", start, "*.wav");
+    fileChooser->launchAsync(juce::FileBrowserComponent::saveMode
+                                 | juce::FileBrowserComponent::canSelectFiles
+                                 | juce::FileBrowserComponent::warnAboutOverwriting,
+                             [safeThis = juce::Component::SafePointer<MainComponent>(this), durationSeconds](const juce::FileChooser& chooser)
+                             {
+                                 if (safeThis == nullptr)
+                                     return;
+
+                                 auto file = chooser.getResult();
+
+                                 if (file != juce::File())
+                                     safeThis->exportStereoWav(file, durationSeconds);
+                             });
+}
+
+void MainComponent::exportStereoWav(juce::File file, const double durationSeconds)
+{
+    if (file.getFileExtension().isEmpty())
+        file = file.withFileExtension("wav");
+
+    if (exportInProgress.exchange(true, std::memory_order_acq_rel))
+    {
+        statusLog.append("WAV export already running");
+        repaint();
+        return;
+    }
+
+    storeActiveGridSlot();
+    storeActiveTransitionCode();
+    storeActiveLane();
+
+    const auto sampleRate = currentAudioSampleRate > 0.0 ? currentAudioSampleRate : 44100.0;
+    const auto targetSamples = static_cast<int64_t>(std::llround(juce::jlimit(1.0, 3600.0, durationSeconds) * sampleRate));
+
+    if (targetSamples <= 0 || targetSamples > static_cast<int64_t>(std::numeric_limits<int>::max()))
+    {
+        exportCaptureActive.store(false, std::memory_order_release);
+        exportInProgress.store(false, std::memory_order_release);
+        statusLog.append("WAV export failed: duration is too long");
+        repaint();
+        return;
+    }
+
+    auto capture = std::make_unique<juce::AudioBuffer<float>>(2, static_cast<int>(targetSamples));
+    capture->clear();
+
+    {
+        const std::lock_guard lock(exportCaptureMutex);
+        exportCaptureFile = file;
+        exportCaptureSampleRate = sampleRate;
+        exportCaptureTargetSamples = targetSamples;
+        exportCaptureWritePosition.store(0, std::memory_order_release);
+        exportCaptureComplete.store(false, std::memory_order_release);
+        exportCaptureActive.store(false, std::memory_order_release);
+        exportCaptureBuffer = std::move(capture);
+    }
+
+    exportStartedTransport = ! transportEngine.isPlaying();
+
+    if (exportStartedTransport)
+    {
+        resetTransport();
+        compileScLanesForAllStates();
+        transportEngine.start();
+        updateTransportControls();
+    }
+
+    exportCaptureActive.store(true, std::memory_order_release);
+    statusLog.append("Recording master WAV: " + juce::String(durationSeconds, 1) + " seconds");
+    repaint();
+}
+
+void MainComponent::finishRealtimeWavExport()
+{
+    juce::File file;
+    double sampleRate = 44100.0;
+    int samplesToWrite = 0;
+    std::unique_ptr<juce::AudioBuffer<float>> capture;
+    const auto shouldStopTransport = exportStartedTransport;
+
+    {
+        const std::lock_guard lock(exportCaptureMutex);
+        exportCaptureActive.store(false, std::memory_order_release);
+        file = exportCaptureFile;
+        sampleRate = exportCaptureSampleRate;
+        samplesToWrite = static_cast<int>(juce::jmin<int64_t>(exportCaptureTargetSamples,
+                                                              exportCaptureWritePosition.load(std::memory_order_acquire)));
+        capture = std::move(exportCaptureBuffer);
+        exportCaptureTargetSamples = 0;
+        exportCaptureFile = juce::File();
+        exportStartedTransport = false;
+    }
+
+    if (shouldStopTransport)
+    {
+        transportEngine.stop();
+        updateTransportControls();
+    }
+
+    if (capture == nullptr || samplesToWrite <= 0)
+    {
+        exportCaptureActive.store(false, std::memory_order_release);
+        exportInProgress.store(false, std::memory_order_release);
+        statusLog.append("WAV export failed: no captured audio");
+        repaint();
+        return;
+    }
+
+    std::thread([safeThis = juce::Component::SafePointer<MainComponent>(this),
+                 file,
+                 sampleRate,
+                 samplesToWrite,
+                 capturedAudio = std::move(capture)]() mutable
+    {
+        juce::String message;
+        auto peak = 0.0f;
+        for (int channel = 0; channel < capturedAudio->getNumChannels(); ++channel)
+            peak = juce::jmax(peak, capturedAudio->getMagnitude(channel, 0, samplesToWrite));
+
+        juce::WavAudioFormat wavFormat;
+        std::unique_ptr<juce::OutputStream> outputStream = file.createOutputStream();
+
+        if (outputStream == nullptr)
+        {
+            message = "WAV export failed: could not write " + file.getFileName();
+        }
+        else
+        {
+            auto writer = wavFormat.createWriterFor(outputStream,
+                                                    juce::AudioFormatWriterOptions()
+                                                        .withSampleRate(sampleRate)
+                                                        .withChannelLayout(juce::AudioChannelSet::stereo())
+                                                        .withBitsPerSample(24));
+
+            if (writer == nullptr)
+            {
+                message = "WAV export failed: could not create WAV writer";
+            }
+            else
+            {
+                writer->writeFromAudioSampleBuffer(*capturedAudio, 0, samplesToWrite);
+                writer.reset();
+                const auto detail = " peak " + juce::String(peak, 5) + " samples " + juce::String(samplesToWrite);
+                message = peak > 0.0001f
+                              ? "Exported WAV: " + file.getFileName() + detail
+                              : "Exported WAV appears silent: " + file.getFileName() + detail;
+            }
+        }
+
+        juce::MessageManager::callAsync([safeThis, message]
+        {
+            if (safeThis == nullptr)
+                return;
+
+            safeThis->exportInProgress.store(false, std::memory_order_release);
+            safeThis->statusLog.append(message);
+            safeThis->refreshMixerView();
+            safeThis->repaint();
+        });
+    }).detach();
 }
 
 juce::String MainComponent::snapshotToText(const GridModel::Snapshot& snapshot) const
@@ -2578,7 +2845,7 @@ void MainComponent::configureMixerView()
 
         label.setJustificationType(juce::Justification::centred);
         level.setSliderStyle(juce::Slider::LinearVertical);
-        level.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 46, 18);
+        level.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         level.setRange(0.0, 1.25, 0.01);
         level.setValue(1.0, juce::dontSendNotification);
 
@@ -2596,13 +2863,13 @@ void MainComponent::configureMixerView()
             if (index == masterMixerControlIndex)
                 applyMasterLevel();
             else
-                applyMixerControl(index / maximumGridsPerState, index % maximumGridsPerState, index);
+                applyMixerControl(index / maximumGridsPerState, index % maximumGridsPerState, index, false);
         };
 
         pan.onValueChange = [this, index]
         {
             if (index != masterMixerControlIndex)
-                applyMixerControl(index / maximumGridsPerState, index % maximumGridsPerState, index);
+                applyMixerControl(index / maximumGridsPerState, index % maximumGridsPerState, index, false);
         };
     }
 
@@ -2716,7 +2983,7 @@ void MainComponent::refreshMixerView()
     masterMixerControlIndex = static_cast<int>(channels.size()) - 1;
 
     const auto channelCount = juce::jmax(1, static_cast<int>(channels.size()));
-    const auto stripWidth = 86;
+    const auto stripWidth = 58;
     const auto contentHeight = juce::jmax(520, mixerViewport.getHeight());
     const auto contentWidth = juce::jmax(20 + channelCount * stripWidth, mixerViewport.getWidth());
     mixerContent.setBounds(0, 0, contentWidth, contentHeight);
@@ -2728,7 +2995,7 @@ void MainComponent::refreshMixerView()
                                     ? maximumMixerChannels - 1
                                     : channel.state * maximumGridsPerState + channel.lane;
         const auto meter = meterIndex >= 0 && meterIndex < maximumMixerChannels
-                               ? mixerMeterPeaks[static_cast<std::size_t>(meterIndex)].load(std::memory_order_relaxed)
+                               ? mixerMeterDisplay[static_cast<std::size_t>(meterIndex)]
                                : 0.0f;
         strips.push_back({ channel.label, channel.output, channel.colour, channel.master, meter });
     }
@@ -2759,8 +3026,8 @@ void MainComponent::refreshMixerView()
         const auto panY = stripBounds.getY() + 87;
         const auto faderTop = stripBounds.getY() + (channel.master ? 88 : 124);
         const auto faderBottom = stripBounds.getBottom() - 74;
-        pan.setBounds(stripBounds.getX() + 11, panY, stripBounds.getWidth() - 22, 20);
-        level.setBounds(stripBounds.getCentreX() - 23, faderTop, 46, juce::jmax(180, faderBottom - faderTop));
+        pan.setBounds(stripBounds.getX() + 6, panY, stripBounds.getWidth() - 12, 18);
+        level.setBounds(stripBounds.getCentreX() - 14, faderTop, 28, juce::jmax(180, faderBottom - faderTop));
         mute.setBounds({});
         solo.setBounds({});
         level.setColour(juce::Slider::trackColourId, channel.colour.withAlpha(0.76f));
@@ -2776,11 +3043,19 @@ void MainComponent::refreshMixerView()
         {
             level.onValueChange = [this, stateIndex = channel.state, laneIndex = channel.lane, index]
             {
-                applyMixerControl(stateIndex, laneIndex, index);
+                applyMixerControl(stateIndex, laneIndex, index, false);
+            };
+            level.onDragEnd = [this, stateIndex = channel.state, laneIndex = channel.lane, index]
+            {
+                applyMixerControl(stateIndex, laneIndex, index, true);
             };
             pan.onValueChange = [this, stateIndex = channel.state, laneIndex = channel.lane, index]
             {
-                applyMixerControl(stateIndex, laneIndex, index);
+                applyMixerControl(stateIndex, laneIndex, index, false);
+            };
+            pan.onDragEnd = [this, stateIndex = channel.state, laneIndex = channel.lane, index]
+            {
+                applyMixerControl(stateIndex, laneIndex, index, true);
             };
         }
     }
@@ -2801,13 +3076,13 @@ void MainComponent::refreshMixerMeters()
             {
                 const auto meterIndex = stateIndex * maximumGridsPerState + laneIndex;
                 meters.push_back(meterIndex >= 0 && meterIndex < maximumMixerChannels
-                                     ? mixerMeterPeaks[static_cast<std::size_t>(meterIndex)].load(std::memory_order_relaxed)
+                                     ? mixerMeterDisplay[static_cast<std::size_t>(meterIndex)]
                                      : 0.0f);
             }
         }
     }
 
-    meters.push_back(mixerMeterPeaks[static_cast<std::size_t>(maximumMixerChannels - 1)].load(std::memory_order_relaxed));
+    meters.push_back(mixerMeterDisplay[static_cast<std::size_t>(maximumMixerChannels - 1)]);
     mixerContent.setMeters(meters);
 }
 
@@ -2948,7 +3223,7 @@ void MainComponent::refreshArrangementView()
     arrangementContent.setArrangement(std::move(states), std::move(edges), selectedIndex);
 }
 
-void MainComponent::applyMixerControl(const int stateIndex, const int laneIndex, const int mixerControlIndex)
+void MainComponent::applyMixerControl(const int stateIndex, const int laneIndex, const int mixerControlIndex, const bool force)
 {
     if (stateIndex < 0 || laneIndex < 0)
         return;
@@ -2957,7 +3232,12 @@ void MainComponent::applyMixerControl(const int stateIndex, const int laneIndex,
         return;
 
     {
-        const std::lock_guard lock(gridRuntimeMutex);
+        std::unique_lock lock(gridRuntimeMutex, std::defer_lock);
+
+        if (force)
+            lock.lock();
+        else if (! lock.try_lock())
+            return;
 
         if (stateIndex >= static_cast<int>(compositionStates.size()))
             return;
@@ -4146,12 +4426,15 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
     activeGridSlot = juce::jlimit(0, static_cast<int>(state.grids.size()) - 1, activeGridSlot);
     const auto transitionGain = [&context, stateFrame]
     {
-        if (stateFrame >= static_cast<std::uint64_t>(juce::jmax(1, context.ticksPerBeat)))
+        const auto fadeFrames = static_cast<std::uint64_t>(juce::jmax(1, context.ticksPerBeat) * 2);
+
+        if (stateFrame >= fadeFrames)
             return 1.0f;
 
         const auto firstBeatPosition = static_cast<float>(stateFrame)
-                                       / static_cast<float>(juce::jmax(1, context.ticksPerBeat));
-        return juce::jlimit(0.68f, 1.0f, 0.68f + firstBeatPosition * 0.32f);
+                                       / static_cast<float>(fadeFrames);
+        const auto eased = firstBeatPosition * firstBeatPosition * (3.0f - 2.0f * firstBeatPosition);
+        return juce::jlimit(0.18f, 1.0f, 0.18f + eased * 0.82f);
     }();
 
     for (int index = 0; index < static_cast<int>(state.grids.size()); ++index)
@@ -4628,8 +4911,12 @@ bool MainComponent::applyTransitionTargetForTransport(const int targetState,
             grid.lastEvaluatedFrame = std::numeric_limits<std::uint64_t>::max();
     }
 
-    pendingTransitionUiState.store(targetIndex, std::memory_order_release);
-    pendingTransitionUiRefresh.store(true, std::memory_order_release);
+    if (! exportInProgress.load(std::memory_order_acquire))
+    {
+        pendingTransitionUiState.store(targetIndex, std::memory_order_release);
+        pendingTransitionUiRefresh.store(true, std::memory_order_release);
+    }
+
     return true;
 }
 

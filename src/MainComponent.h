@@ -37,6 +37,7 @@ public:
     void menuLoadComposition();
     void menuSaveComposition();
     void menuSaveCompositionAs();
+    void menuExportStereoWav();
     void menuShowMainView();
     void menuToggleMixerView();
     void menuToggleArrangementView();
@@ -135,10 +136,16 @@ private:
             const auto count = juce::jmin(static_cast<int>(strips.size()), static_cast<int>(meters.size()));
 
             for (int index = 0; index < count; ++index)
-                strips[static_cast<std::size_t>(index)].meter = juce::jlimit(0.0f, 1.0f, meters[static_cast<std::size_t>(index)]);
+            {
+                auto& strip = strips[static_cast<std::size_t>(index)];
+                const auto next = juce::jlimit(0.0f, 1.0f, meters[static_cast<std::size_t>(index)]);
 
-            if (count > 0)
-                repaint();
+                if (std::abs(strip.meter - next) <= 0.0015f)
+                    continue;
+
+                strip.meter = next;
+                repaint(10 + index * stripWidth, 0, stripWidth, getHeight());
+            }
         }
 
         void paint(juce::Graphics& graphics) override
@@ -371,6 +378,9 @@ private:
     void showSavePatternDialog();
     void showLoadCompositionDialog();
     void showSaveCompositionDialog();
+    void showExportWavDialog(double durationSeconds);
+    void exportStereoWav(juce::File file, double durationSeconds);
+    void finishRealtimeWavExport();
     void loadCompositionFile(const juce::File& file);
     void saveCompositionFile(juce::File file);
     [[nodiscard]] juce::var serialiseComposition() const;
@@ -421,7 +431,7 @@ private:
     void configureArrangementView();
     void toggleArrangementView();
     void refreshArrangementView();
-    void applyMixerControl(int stateIndex, int laneIndex, int mixerControlIndex);
+    void applyMixerControl(int stateIndex, int laneIndex, int mixerControlIndex, bool force = false);
     void applyMasterLevel();
     void applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane, float transitionGain = 1.0f) const;
     void configureLaneCodePane();
@@ -600,6 +610,7 @@ private:
     std::array<juce::TextButton, maximumMixerChannels> mixerMuteButtons;
     std::array<juce::TextButton, maximumMixerChannels> mixerSoloButtons;
     std::array<std::atomic<float>, maximumMixerChannels> mixerMeterPeaks {};
+    std::array<float, maximumMixerChannels> mixerMeterDisplay {};
 
     juce::TextButton playPauseButton;
     juce::TextButton stopButton;
@@ -646,6 +657,18 @@ private:
     juce::File currentCompositionFile;
     float masterLevel = 0.9f;
     int masterMixerControlIndex = maximumMixerChannels - 1;
+    double currentAudioSampleRate = 44100.0;
+    int currentAudioBlockSize = 512;
+    std::atomic<bool> exportInProgress { false };
+    std::atomic<bool> exportCaptureActive { false };
+    std::atomic<bool> exportCaptureComplete { false };
+    std::atomic<int64_t> exportCaptureWritePosition { 0 };
+    int64_t exportCaptureTargetSamples = 0;
+    double exportCaptureSampleRate = 44100.0;
+    bool exportStartedTransport = false;
+    juce::File exportCaptureFile;
+    std::unique_ptr<juce::AudioBuffer<float>> exportCaptureBuffer;
+    std::mutex exportCaptureMutex;
     bool mixerViewVisible = false;
     bool arrangementViewVisible = false;
     std::uint64_t uiFrameCounter = 0;

@@ -574,21 +574,40 @@ void emitMidiLikeEvent(Context& ctx, Op& op, const juce::String& kind)
     if (! ctx.hasNeighbor(op, '*'))
         return;
 
-    if (ctx.listenGlyph(op, op.port("channel")) == GridModel::emptyGlyph
-        || ctx.listenGlyph(op, op.port("octave")) == GridModel::emptyGlyph
-        || ctx.listenGlyph(op, op.port("note")) == GridModel::emptyGlyph
-        || isAsciiDigit(ctx.listenGlyph(op, op.port("note"))))
+    const auto channelGlyph = ctx.listenGlyph(op, op.port("channel"));
+    const auto octaveGlyph = ctx.listenGlyph(op, op.port("octave"));
+    const auto noteGlyph = ctx.listenGlyph(op, op.port("note"));
+    const auto hasCompactTail = noteGlyph == GridModel::emptyGlyph || noteGlyph == '*';
+    const auto compactPitchOnly = channelGlyph != GridModel::emptyGlyph
+                                  && channelGlyph != '*'
+                                  && ! isAsciiDigit(channelGlyph)
+                                  && (octaveGlyph == GridModel::emptyGlyph || octaveGlyph == '*');
+    const auto compactChannelPitch = channelGlyph != GridModel::emptyGlyph
+                                     && channelGlyph != '*'
+                                     && octaveGlyph != GridModel::emptyGlyph
+                                     && octaveGlyph != '*'
+                                     && ! isAsciiDigit(octaveGlyph)
+                                     && hasCompactTail;
+    const auto compactNote = compactPitchOnly || compactChannelPitch;
+
+    if (! compactNote
+        && (channelGlyph == GridModel::emptyGlyph
+            || octaveGlyph == GridModel::emptyGlyph
+            || noteGlyph == GridModel::emptyGlyph
+            || isAsciiDigit(noteGlyph)))
         return;
 
-    const auto channel = ctx.listenValue(op, op.port("channel"));
+    const auto channel = compactChannelPitch ? ctx.valueOf(channelGlyph)
+                                             : compactPitchOnly ? (kind == "mono" ? 1 : 0)
+                                                                : ctx.listenValue(op, op.port("channel"));
 
     if (channel > 15)
         return;
 
-    const auto octave = ctx.listenValue(op, op.port("octave"));
-    const auto note = ctx.listenGlyph(op, op.port("note"));
-    const auto velocity = ctx.listenValue(op, op.port("velocity"));
-    const auto length = ctx.listenValue(op, op.port("length"));
+    const auto octave = compactNote ? 5 : ctx.listenValue(op, op.port("octave"));
+    const auto note = compactChannelPitch ? octaveGlyph : compactPitchOnly ? channelGlyph : noteGlyph;
+    const auto velocity = compactNote ? 6 : ctx.listenValue(op, op.port("velocity"));
+    const auto length = compactNote ? 4 : ctx.listenValue(op, op.port("length"));
 
     ParameterMap parameters;
     parameters["channel"] = juce::String(channel);

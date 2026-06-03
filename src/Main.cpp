@@ -82,6 +82,8 @@ private:
                 menu.addItem(1, "Load...");
                 menu.addItem(2, "Save");
                 menu.addItem(3, "Save As...");
+                menu.addSeparator();
+                menu.addItem(4, "Export Stereo WAV...");
             }
             else if (menuIndex == 1)
             {
@@ -126,6 +128,8 @@ private:
                 mainComponent->menuSaveComposition();
             else if (menuItemID == 3)
                 mainComponent->menuSaveCompositionAs();
+            else if (menuItemID == 4)
+                mainComponent->menuExportStereoWav();
             else if (menuItemID == 9)
                 mainComponent->menuShowMainView();
             else if (menuItemID == 10)
@@ -134,6 +138,8 @@ private:
                 mainComponent->menuToggleArrangementView();
             else if (menuItemID >= exampleMenuBaseId && menuItemID < exampleMenuBaseId + exampleFiles.size())
                 mainComponent->menuLoadExample(exampleFiles[menuItemID - exampleMenuBaseId]);
+
+            menuItemsChanged();
         }
 
     private:
