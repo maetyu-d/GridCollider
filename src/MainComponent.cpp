@@ -1175,6 +1175,8 @@ void MainComponent::resized()
         topControls.removeFromLeft(10);
         newInstrumentButton.setBounds(topControls.removeFromLeft(90));
         topControls.removeFromLeft(8);
+        duplicateInstrumentButton.setBounds(topControls.removeFromLeft(104));
+        topControls.removeFromLeft(8);
         deleteInstrumentButton.setBounds(topControls.removeFromLeft(90));
         topControls.removeFromLeft(8);
         resetInstrumentButton.setBounds(topControls.removeFromLeft(90));
@@ -3646,6 +3648,7 @@ void MainComponent::configureInstrumentView()
                              static_cast<juce::Component*>(&instrumentSelector),
                              static_cast<juce::Component*>(&instrumentNameEditor),
                              static_cast<juce::Component*>(&newInstrumentButton),
+                             static_cast<juce::Component*>(&duplicateInstrumentButton),
                              static_cast<juce::Component*>(&deleteInstrumentButton),
                              static_cast<juce::Component*>(&resetInstrumentButton),
                              static_cast<juce::Component*>(&saveInstrumentButton),
@@ -3672,6 +3675,7 @@ void MainComponent::configureInstrumentView()
     instrumentCodeLabel.setText("SynthDef", juce::dontSendNotification);
     instrumentMapLabel.setText("Channel Map", juce::dontSendNotification);
     newInstrumentButton.setButtonText("New");
+    duplicateInstrumentButton.setButtonText("Duplicate");
     deleteInstrumentButton.setButtonText("Delete");
     resetInstrumentButton.setButtonText("Reset");
     saveInstrumentButton.setButtonText("Save");
@@ -3701,6 +3705,7 @@ void MainComponent::configureInstrumentView()
     instrumentNameEditor.onReturnKey = [this] { storeActiveInstrumentEditor(); refreshInstrumentView(); };
     instrumentNameEditor.onFocusLost = [this] { storeActiveInstrumentEditor(); refreshInstrumentView(); };
     newInstrumentButton.onClick = [this] { addUserInstrument(); };
+    duplicateInstrumentButton.onClick = [this] { duplicateSelectedInstrument(); };
     deleteInstrumentButton.onClick = [this] { deleteSelectedUserInstrument(); };
     resetInstrumentButton.onClick = [this] { resetSelectedDefaultInstrument(); };
     saveInstrumentButton.onClick = [this] { saveSelectedInstrument(); };
@@ -3758,7 +3763,7 @@ void MainComponent::styleInstrumentView()
         label.setColour(juce::Label::textColourId, text.withAlpha(0.76f));
     }
 
-    for (auto* button : { &newInstrumentButton, &deleteInstrumentButton, &resetInstrumentButton, &saveInstrumentButton, &compileInstrumentButton, &applyInstrumentMapButton })
+    for (auto* button : { &newInstrumentButton, &duplicateInstrumentButton, &deleteInstrumentButton, &resetInstrumentButton, &saveInstrumentButton, &compileInstrumentButton, &applyInstrumentMapButton })
     {
         button->setColour(juce::TextButton::buttonColourId, panel);
         button->setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
@@ -3974,6 +3979,7 @@ void MainComponent::refreshInstrumentView()
     instrumentUsedByLabel.setText(usedBy.isEmpty() ? "unused" : "used by " + usedBy.joinIntoString(", "),
                                   juce::dontSendNotification);
 
+    duplicateInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
     deleteInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex < 0 && selectedDefaultInstrumentIndex < 0 && selectedUserInstrumentIndex >= 0);
     resetInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex < 0 && selectedDefaultInstrumentIndex >= 0);
     saveInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
@@ -4111,6 +4117,80 @@ void MainComponent::addUserInstrument()
     selectedDefaultInstrumentIndex = -1;
     selectedUserInstrumentIndex = static_cast<int>(userInstruments.size()) - 1;
     refreshInstrumentView();
+}
+
+void MainComponent::duplicateSelectedInstrument()
+{
+    storeActiveInstrumentEditor();
+
+    juce::String sourceName;
+    juce::String sourceCode;
+
+    if (selectedInstrumentLaneReferenceIndex >= 0 && selectedInstrumentLaneReferenceIndex < static_cast<int>(instrumentLaneReferences.size()))
+    {
+        const auto reference = instrumentLaneReferences[static_cast<std::size_t>(selectedInstrumentLaneReferenceIndex)];
+        sourceName = reference.synthName;
+
+        {
+            const std::lock_guard lock(gridRuntimeMutex);
+            if (reference.stateIndex >= 0 && reference.stateIndex < static_cast<int>(compositionStates.size()))
+            {
+                const auto& state = compositionStates[static_cast<std::size_t>(reference.stateIndex)];
+                if (reference.laneIndex >= 0 && reference.laneIndex < static_cast<int>(state.grids.size()))
+                    sourceCode = state.grids[static_cast<std::size_t>(reference.laneIndex)].scCode;
+            }
+        }
+    }
+    else if (selectedDefaultInstrumentIndex >= 0 && selectedDefaultInstrumentIndex < static_cast<int>(defaultInstruments.size()))
+    {
+        const auto& instrument = defaultInstruments[static_cast<std::size_t>(selectedDefaultInstrumentIndex)];
+        sourceName = instrument.name;
+        sourceCode = instrument.code;
+    }
+    else if (selectedUserInstrumentIndex >= 0 && selectedUserInstrumentIndex < static_cast<int>(userInstruments.size()))
+    {
+        const auto& instrument = userInstruments[static_cast<std::size_t>(selectedUserInstrumentIndex)];
+        sourceName = instrument.name;
+        sourceCode = instrument.code;
+    }
+
+    if (sourceCode.isEmpty())
+        sourceCode = instrumentCodeDocument.getAllContent();
+
+    if (sourceName.isEmpty())
+        sourceName = "instrument";
+
+    auto baseName = ("my_" + sourceName).retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_").trim();
+    if (baseName.isEmpty())
+        baseName = "my_instrument";
+
+    juce::StringArray existingNames;
+    for (const auto& instrument : defaultInstruments)
+        existingNames.add(instrument.name.toLowerCase());
+    for (const auto& instrument : userInstruments)
+        existingNames.add(instrument.name.toLowerCase());
+    for (const auto& reference : instrumentLaneReferences)
+        existingNames.add(reference.synthName.toLowerCase());
+
+    auto newName = baseName;
+    int suffix = 2;
+    while (existingNames.contains(newName.toLowerCase()))
+        newName = baseName + "_" + juce::String(suffix++);
+
+    if (sourceCode.isEmpty())
+        sourceCode = createDefaultUserInstrumentCode(newName);
+
+    const auto synthDefs = extractSynthDefs(sourceCode, 0, static_cast<int>(userInstruments.size()) + 1);
+    if (! synthDefs.empty())
+        sourceCode = sourceCode.replace("SynthDef(\\" + synthDefs.front().name, "SynthDef(\\" + newName);
+
+    userInstruments.push_back({ newName, sourceCode });
+    selectedInstrumentLaneReferenceIndex = -1;
+    selectedDefaultInstrumentIndex = -1;
+    selectedUserInstrumentIndex = static_cast<int>(userInstruments.size()) - 1;
+    statusLog.append("Duplicated SynthDef: " + newName);
+    refreshInstrumentView();
+    repaint();
 }
 
 void MainComponent::deleteSelectedUserInstrument()

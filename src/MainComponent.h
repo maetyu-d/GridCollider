@@ -443,6 +443,7 @@ private:
     void selectInstrumentEditorTarget(int comboId);
     void selectUserInstrument(int index);
     void addUserInstrument();
+    void duplicateSelectedInstrument();
     void deleteSelectedUserInstrument();
     void saveSelectedInstrument();
     void resetSelectedDefaultInstrument();
@@ -637,6 +638,7 @@ private:
     juce::ComboBox instrumentSelector;
     juce::TextEditor instrumentNameEditor;
     juce::TextButton newInstrumentButton;
+    juce::TextButton duplicateInstrumentButton;
     juce::TextButton deleteInstrumentButton;
     juce::TextButton resetInstrumentButton;
     juce::TextButton saveInstrumentButton;
