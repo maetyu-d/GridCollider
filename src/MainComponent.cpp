@@ -6,6 +6,163 @@
 
 namespace gridcollider
 {
+namespace
+{
+struct ExtractedSynthDef
+{
+    juce::String name;
+    juce::String source;
+};
+
+juce::String exampleMenuTitleFor(const juce::File& file)
+{
+    auto title = file.getFileNameWithoutExtension().replaceCharacter('-', ' ');
+
+    for (int index = 0; index < title.length(); ++index)
+    {
+        if (index == 0 || title[index - 1] == ' ')
+            title = title.replaceSection(index, 1, juce::String::charToString(juce::CharacterFunctions::toUpperCase(title[index])));
+    }
+
+    return title;
+}
+
+std::size_t findMatchingParen(const std::string& text, const std::size_t openIndex)
+{
+    int depth = 0;
+    bool inString = false;
+    bool inLineComment = false;
+    bool inBlockComment = false;
+    bool escaped = false;
+
+    for (auto index = openIndex; index < text.size(); ++index)
+    {
+        const auto current = text[index];
+        const auto next = index + 1 < text.size() ? text[index + 1] : '\0';
+
+        if (inLineComment)
+        {
+            if (current == '\n' || current == '\r')
+                inLineComment = false;
+
+            continue;
+        }
+
+        if (inBlockComment)
+        {
+            if (current == '*' && next == '/')
+            {
+                inBlockComment = false;
+                ++index;
+            }
+
+            continue;
+        }
+
+        if (inString)
+        {
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (current == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (current == '"')
+                inString = false;
+
+            continue;
+        }
+
+        if (current == '/' && next == '/')
+        {
+            inLineComment = true;
+            ++index;
+            continue;
+        }
+
+        if (current == '/' && next == '*')
+        {
+            inBlockComment = true;
+            ++index;
+            continue;
+        }
+
+        if (current == '"')
+        {
+            inString = true;
+            continue;
+        }
+
+        if (current == '$')
+        {
+            ++index;
+            continue;
+        }
+
+        if (current == '(')
+        {
+            ++depth;
+            continue;
+        }
+
+        if (current == ')')
+        {
+            --depth;
+
+            if (depth == 0)
+                return index;
+        }
+    }
+
+    return std::string::npos;
+}
+
+std::vector<ExtractedSynthDef> extractSynthDefs(const juce::String& source,
+                                                const int stateNumber,
+                                                const int laneNumber)
+{
+    std::vector<ExtractedSynthDef> synthDefs;
+    juce::StringArray seen;
+    const auto text = source.toStdString();
+    const std::regex synthDefPattern(R"(SynthDef\s*\(\s*\\([A-Za-z_][A-Za-z0-9_]*))");
+
+    for (auto iter = std::sregex_iterator(text.begin(), text.end(), synthDefPattern);
+         iter != std::sregex_iterator();
+         ++iter)
+    {
+        auto name = juce::String((*iter)[1].str()).trim();
+
+        if (name.isEmpty() || seen.contains(name, true))
+            continue;
+
+        const auto start = static_cast<std::size_t>(iter->position(0));
+        const auto open = text.find('(', start);
+
+        if (open == std::string::npos)
+            continue;
+
+        const auto close = findMatchingParen(text, open);
+
+        if (close == std::string::npos)
+            continue;
+
+        seen.add(name);
+        synthDefs.push_back({ name, juce::String(text.substr(start, close + 1 - start)) });
+    }
+
+    if (synthDefs.empty())
+        synthDefs.push_back({ "gc_s" + juce::String(stateNumber) + "_l" + juce::String(laneNumber), source });
+
+    return synthDefs;
+}
+}
+
 MainComponent::SourceCodeBackdropComponent::SourceCodeBackdropComponent()
 {
     setInterceptsMouseClicks(false, false);
@@ -1301,6 +1458,12 @@ void MainComponent::prepareToPlay(const int samplesPerBlockExpected, const doubl
     {
         embeddedScAudio.setMasterLevel(masterLevel);
         statusLog.append("Embedded SuperCollider audio ready");
+
+        juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<MainComponent>(this)]
+        {
+            if (safeThis != nullptr)
+                safeThis->compileScLanesForAllStates();
+        });
     }
     else
     {
@@ -1554,7 +1717,7 @@ void MainComponent::showExampleMenu()
     juce::PopupMenu menu;
 
     for (int index = 0; index < examples.size(); ++index)
-        menu.addItem(index + 1, examples[index].getFileNameWithoutExtension());
+        menu.addItem(index + 1, exampleMenuTitleFor(examples[index]));
 
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(loadExampleButton),
                        [this, examples](const int result)
@@ -3736,21 +3899,32 @@ juce::String MainComponent::createDefaultScLaneCode(const int stateNumber, const
 )SC";
 }
 
+std::vector<juce::String> MainComponent::getSynthDefNamesFromSource(const juce::String& source,
+                                                                    const int stateNumber,
+                                                                    const int laneNumber) const
+{
+    std::vector<juce::String> names;
+
+    for (const auto& synthDef : extractSynthDefs(source, stateNumber, laneNumber))
+        names.push_back(synthDef.name);
+
+    return names;
+}
+
 juce::String MainComponent::getSynthDefNameFromSource(const juce::String& source, const int stateNumber, const int laneNumber) const
 {
-    std::smatch match;
-    const auto text = source.toStdString();
-
-    if (std::regex_search(text, match, std::regex(R"(SynthDef\s*\(\s*\\([A-Za-z_][A-Za-z0-9_]*))")))
-        return juce::String(match[1].str());
-
-    return "gc_s" + juce::String(stateNumber) + "_l" + juce::String(laneNumber);
+    return getSynthDefNamesFromSource(source, stateNumber, laneNumber).front();
 }
 
 void MainComponent::compileSelectedScLane()
 {
-    juce::String code;
-    juce::String name;
+    if (! embeddedScAudio.isReady())
+    {
+        statusLog.append("SC lane compile skipped: audio is not ready");
+        return;
+    }
+
+    std::vector<ExtractedSynthDef> synthDefs;
 
     {
         const std::lock_guard lock(gridRuntimeMutex);
@@ -3771,22 +3945,34 @@ void MainComponent::compileSelectedScLane()
             return;
 
         lane.scCode = laneScCodeDocument.getAllContent();
-        lane.scSynthName = getSynthDefNameFromSource(lane.scCode, activeStateIndex + 1, activeGridSlot + 1);
-        code = lane.scCode;
-        name = lane.scSynthName;
+        synthDefs = extractSynthDefs(lane.scCode, activeStateIndex + 1, activeGridSlot + 1);
+        lane.scSynthName = synthDefs.front().name;
         lane.scCodeDirty = false;
     }
 
-    if (embeddedScAudio.loadSynthDef(name, code))
-        statusLog.append("Loaded SynthDef: " + name);
-    else
-        statusLog.append("SynthDef load failed: " + embeddedScAudio.getLastError());
+    int loaded = 0;
+
+    for (const auto& synthDef : synthDefs)
+    {
+        if (embeddedScAudio.loadSynthDef(synthDef.name, synthDef.source))
+            ++loaded;
+        else
+            statusLog.append("SynthDef load failed: " + embeddedScAudio.getLastError());
+    }
+
+    if (loaded > 0)
+        statusLog.append("Loaded " + juce::String(loaded) + " SynthDef" + (loaded == 1 ? "" : "s"));
 
     repaint();
 }
 
 void MainComponent::compileScLanesForState(const int stateIndex)
 {
+    if (! embeddedScAudio.isReady())
+    {
+        return;
+    }
+
     struct PendingSynth
     {
         juce::String name;
@@ -3813,9 +3999,12 @@ void MainComponent::compileScLanesForState(const int stateIndex)
             if (lane.scCode.isEmpty())
                 lane.scCode = createDefaultScLaneCode(stateIndex + 1, laneIndex + 1);
 
-            lane.scSynthName = getSynthDefNameFromSource(lane.scCode, stateIndex + 1, laneIndex + 1);
+            const auto synthDefs = extractSynthDefs(lane.scCode, stateIndex + 1, laneIndex + 1);
+            lane.scSynthName = synthDefs.front().name;
             lane.scCodeDirty = false;
-            pending.push_back({ lane.scSynthName, lane.scCode });
+
+            for (const auto& synthDef : synthDefs)
+                pending.push_back({ synthDef.name, synthDef.source });
         }
     }
 
@@ -3828,14 +4017,73 @@ void MainComponent::compileScLanesForState(const int stateIndex)
 
 void MainComponent::compileScLanesForAllStates()
 {
-    const int stateCount = [&]
+    if (! embeddedScAudio.isReady())
+    {
+        return;
+    }
+
+    struct PendingSynth
+    {
+        juce::String name;
+        juce::String code;
+    };
+
+    std::vector<PendingSynth> pending;
+
     {
         const std::lock_guard lock(gridRuntimeMutex);
-        return static_cast<int>(compositionStates.size());
-    }();
+        juce::StringArray seen;
 
-    for (int stateIndex = 0; stateIndex < stateCount; ++stateIndex)
-        compileScLanesForState(stateIndex);
+        for (int stateIndex = 0; stateIndex < static_cast<int>(compositionStates.size()); ++stateIndex)
+        {
+            auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+
+            for (int laneIndex = 0; laneIndex < static_cast<int>(state.grids.size()); ++laneIndex)
+            {
+                auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+
+                if (lane.kind != CompositionGrid::Kind::supercollider)
+                    continue;
+
+                if (lane.scCode.isEmpty())
+                    lane.scCode = createDefaultScLaneCode(stateIndex + 1, laneIndex + 1);
+
+                const auto synthDefs = extractSynthDefs(lane.scCode, stateIndex + 1, laneIndex + 1);
+                lane.scSynthName = synthDefs.front().name;
+                lane.scCodeDirty = false;
+
+                for (const auto& synthDef : synthDefs)
+                {
+                    const auto key = synthDef.name + ":" + juce::String(static_cast<juce::int64>(synthDef.source.hashCode64()));
+
+                    if (! seen.contains(key))
+                    {
+                        seen.add(key);
+                        pending.push_back({ synthDef.name, synthDef.source });
+                    }
+                }
+            }
+        }
+    }
+
+    int loaded = 0;
+    int failed = 0;
+
+    for (const auto& synth : pending)
+    {
+        if (embeddedScAudio.loadSynthDef(synth.name, synth.code))
+            ++loaded;
+        else
+        {
+            ++failed;
+        }
+    }
+
+    if (loaded > 0)
+        statusLog.append("Loaded " + juce::String(loaded) + " SC SynthDef" + (loaded == 1 ? "" : "s"));
+
+    if (failed > 0)
+        statusLog.append("SynthDef load failed: " + embeddedScAudio.getLastError());
 }
 
 void MainComponent::switchToState(const int stateIndex)
@@ -4426,7 +4674,7 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
     activeGridSlot = juce::jlimit(0, static_cast<int>(state.grids.size()) - 1, activeGridSlot);
     const auto transitionGain = [&context, stateFrame]
     {
-        const auto fadeFrames = static_cast<std::uint64_t>(juce::jmax(1, context.ticksPerBeat) * 2);
+        const auto fadeFrames = static_cast<std::uint64_t>(juce::jmax(1, context.ticksPerBeat) * 4);
 
         if (stateFrame >= fadeFrames)
             return 1.0f;
@@ -4434,7 +4682,7 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
         const auto firstBeatPosition = static_cast<float>(stateFrame)
                                        / static_cast<float>(fadeFrames);
         const auto eased = firstBeatPosition * firstBeatPosition * (3.0f - 2.0f * firstBeatPosition);
-        return juce::jlimit(0.18f, 1.0f, 0.18f + eased * 0.82f);
+        return juce::jlimit(0.08f, 1.0f, 0.08f + eased * 0.92f);
     }();
 
     for (int index = 0; index < static_cast<int>(state.grids.size()); ++index)
@@ -4510,7 +4758,6 @@ void MainComponent::toggleTransportPlayback()
     }
     else
     {
-        compileScLanesForAllStates();
         transportEngine.start();
         statusLog.append("Transport running");
     }

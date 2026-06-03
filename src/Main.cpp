@@ -5,6 +5,19 @@
 
 namespace
 {
+juce::String exampleMenuTitleFor(const juce::File& file)
+{
+    auto title = file.getFileNameWithoutExtension().replaceCharacter('-', ' ');
+
+    for (int index = 0; index < title.length(); ++index)
+    {
+        if (index == 0 || title[index - 1] == ' ')
+            title = title.replaceSection(index, 1, juce::String::charToString(juce::CharacterFunctions::toUpperCase(title[index])));
+    }
+
+    return title;
+}
+
 class GridColliderApplication final : public juce::JUCEApplication
 {
 public:
@@ -108,7 +121,7 @@ private:
                 {
                     for (int index = 0; index < exampleFiles.size(); ++index)
                         examplesMenu.addItem(exampleMenuBaseId + index,
-                                             exampleFiles[index].getFileNameWithoutExtension());
+                                             exampleMenuTitleFor(exampleFiles[index]));
                 }
 
                 menu.addSubMenu("Examples", examplesMenu);

@@ -444,6 +444,9 @@ private:
     void compileScLanesForState(int stateIndex);
     void compileScLanesForAllStates();
     [[nodiscard]] juce::String createDefaultScLaneCode(int stateNumber, int laneNumber) const;
+    [[nodiscard]] std::vector<juce::String> getSynthDefNamesFromSource(const juce::String& source,
+                                                                       int stateNumber,
+                                                                       int laneNumber) const;
     [[nodiscard]] juce::String getSynthDefNameFromSource(const juce::String& source, int stateNumber, int laneNumber) const;
     void applyGridSizeEditors();
     void updateGridSizeControls();
