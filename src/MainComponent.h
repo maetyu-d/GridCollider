@@ -690,8 +690,6 @@ private:
     std::atomic<int> pendingTransitionUiState { -1 };
     int transitionPaneHeight = 150;
     double fsmGridSplitRatio = 0.5;
-    int headerHatchAngle = 90;
-    int transitionHatchAngle = 45;
     juce::Random transitionRandom;
     SplitterDrag activeSplitterDrag = SplitterDrag::none;
     mutable std::mutex gridRuntimeMutex;
