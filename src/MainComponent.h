@@ -40,6 +40,8 @@ public:
     void menuSaveComposition();
     void menuSaveCompositionAs();
     void menuExportStereoWav();
+    void menuExportStateStems();
+    void menuExportLaneStems();
     void menuShowMainView();
     void menuToggleMixerView();
     void menuToggleArrangementView();
@@ -778,7 +780,22 @@ private:
     void showLoadCompositionDialog();
     void showSaveCompositionDialog();
     void showExportWavDialog(double durationSeconds);
+    enum class ExportCaptureMode
+    {
+        master = 0,
+        stateStems = 1,
+        laneStems = 2
+    };
+    void showExportStemsDurationDialog(ExportCaptureMode mode);
+    void showExportStemFolderDialog(ExportCaptureMode mode, double durationSeconds);
     void exportStereoWav(juce::File file, double durationSeconds);
+    void exportStemWavs(ExportCaptureMode mode, juce::File folder, double durationSeconds);
+    void captureStemBlock(int stateIndex,
+                          int laneIndex,
+                          const juce::AudioBuffer<float>& source,
+                          float level,
+                          float pan,
+                          int samples);
     void finishRealtimeWavExport();
     void loadCompositionFile(const juce::File& file);
     void saveCompositionFile(juce::File file);
@@ -1222,12 +1239,24 @@ private:
     std::atomic<bool> exportInProgress { false };
     std::atomic<bool> exportCaptureActive { false };
     std::atomic<bool> exportCaptureComplete { false };
+    std::atomic<int> exportCaptureMode { static_cast<int>(ExportCaptureMode::master) };
     std::atomic<int64_t> exportCaptureWritePosition { 0 };
-    int64_t exportCaptureTargetSamples = 0;
+    std::atomic<int64_t> exportCaptureTargetSamples { 0 };
     double exportCaptureSampleRate = 44100.0;
     bool exportStartedTransport = false;
     juce::File exportCaptureFile;
+    juce::File exportCaptureFolder;
     std::unique_ptr<juce::AudioBuffer<float>> exportCaptureBuffer;
+    struct ExportStemTarget
+    {
+        int stateIndex = -1;
+        int laneIndex = -1;
+        juce::String fileName;
+    };
+    std::vector<ExportStemTarget> exportStemTargets;
+    std::vector<std::unique_ptr<juce::AudioBuffer<float>>> exportStemCaptureBuffers;
+    std::array<int, maximumMixerChannels> exportLaneCaptureMap {};
+    std::array<int, 16> exportStateCaptureMap {};
     std::mutex exportCaptureMutex;
     bool mixerViewVisible = false;
     bool arrangementViewVisible = false;

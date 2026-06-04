@@ -27,6 +27,27 @@ juce::String exampleMenuTitleFor(const juce::File& file)
     return title;
 }
 
+juce::String makeSafeStemFileName(juce::String name)
+{
+    name = name.trim();
+
+    if (name.isEmpty())
+        name = "stem";
+
+    juce::String result;
+    for (int index = 0; index < name.length(); ++index)
+    {
+        const auto character = name[index];
+        const auto allowed = juce::CharacterFunctions::isLetterOrDigit(character)
+                          || character == '-'
+                          || character == '_'
+                          || character == ' ';
+        result += juce::String::charToString(allowed ? character : '_');
+    }
+
+    return result.trim().replace(" ", "_").substring(0, 96);
+}
+
 std::size_t findMatchingParen(const std::string& text, const std::size_t openIndex)
 {
     int depth = 0;
@@ -824,7 +845,7 @@ void MainComponent::menuSaveCompositionAs()
 
 void MainComponent::menuExportStereoWav()
 {
-    if (exportCaptureActive.load(std::memory_order_acquire))
+    if (exportInProgress.load(std::memory_order_acquire))
     {
         statusLog.append("WAV export already running");
         repaint();
@@ -849,6 +870,16 @@ void MainComponent::menuExportStereoWav()
                                 safeThis->showExportWavDialog(durationSeconds > 0.0 ? durationSeconds : 120.0);
                             }),
                             true);
+}
+
+void MainComponent::menuExportStateStems()
+{
+    showExportStemsDurationDialog(ExportCaptureMode::stateStems);
+}
+
+void MainComponent::menuExportLaneStems()
+{
+    showExportStemsDurationDialog(ExportCaptureMode::laneStems);
 }
 
 void MainComponent::menuShowMainView()
@@ -1880,34 +1911,40 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
             meter.store(juce::jlimit(0.0f, 1.0f, peak), std::memory_order_relaxed);
     }
 
-    if (exportInProgress.load(std::memory_order_acquire))
+    if (exportCaptureActive.load(std::memory_order_acquire))
     {
+        const auto mode = static_cast<ExportCaptureMode>(exportCaptureMode.load(std::memory_order_acquire));
         const auto position = exportCaptureWritePosition.load(std::memory_order_relaxed);
-        const auto remaining = exportCaptureTargetSamples - position;
+        const auto targetSamples = exportCaptureTargetSamples.load(std::memory_order_acquire);
+        const auto remaining = targetSamples - position;
 
         if (remaining > 0)
         {
             const auto samplesToCopy = static_cast<int>(juce::jmin<int64_t>(output.getNumSamples(), remaining));
-            const std::lock_guard lock(exportCaptureMutex);
 
-            if (exportCaptureBuffer != nullptr && position + samplesToCopy <= exportCaptureBuffer->getNumSamples())
+            if (mode == ExportCaptureMode::master)
             {
-                for (int channel = 0; channel < 2; ++channel)
+                const std::lock_guard lock(exportCaptureMutex);
+
+                if (exportCaptureBuffer != nullptr && position + samplesToCopy <= exportCaptureBuffer->getNumSamples())
                 {
-                    const auto sourceChannel = juce::jmin(channel, output.getNumChannels() - 1);
-                    exportCaptureBuffer->copyFrom(channel,
-                                                  static_cast<int>(position),
-                                                  output,
-                                                  sourceChannel,
-                                                  0,
-                                                  samplesToCopy);
+                    for (int channel = 0; channel < 2; ++channel)
+                    {
+                        const auto sourceChannel = juce::jmin(channel, output.getNumChannels() - 1);
+                        exportCaptureBuffer->copyFrom(channel,
+                                                      static_cast<int>(position),
+                                                      output,
+                                                      sourceChannel,
+                                                      0,
+                                                      samplesToCopy);
+                    }
                 }
             }
 
             const auto nextPosition = position + samplesToCopy;
             exportCaptureWritePosition.store(nextPosition, std::memory_order_release);
 
-            if (nextPosition >= exportCaptureTargetSamples)
+            if (nextPosition >= targetSamples)
                 exportCaptureComplete.store(true, std::memory_order_release);
         }
     }
@@ -2204,6 +2241,61 @@ void MainComponent::showExportWavDialog(const double durationSeconds)
                              });
 }
 
+void MainComponent::showExportStemsDurationDialog(const ExportCaptureMode mode)
+{
+    if (exportInProgress.load(std::memory_order_acquire))
+    {
+        statusLog.append("WAV export already running");
+        repaint();
+        return;
+    }
+
+    const auto title = mode == ExportCaptureMode::stateStems ? "Export State Stems"
+                                                             : "Export Lane Stems";
+    auto* prompt = new juce::AlertWindow(title,
+                                         "Enter the duration to render, in seconds.",
+                                         juce::MessageBoxIconType::NoIcon);
+    prompt->addTextEditor("duration", "120", "Duration");
+    prompt->addButton("Choose Folder", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    prompt->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    prompt->enterModalState(true,
+                            juce::ModalCallbackFunction::create([safeThis = juce::Component::SafePointer<MainComponent>(this), prompt, mode](const int result)
+                            {
+                                if (safeThis == nullptr || result != 1)
+                                    return;
+
+                                const auto durationSeconds = juce::jlimit(1.0,
+                                                                          3600.0,
+                                                                          prompt->getTextEditorContents("duration").getDoubleValue());
+                                safeThis->showExportStemFolderDialog(mode, durationSeconds > 0.0 ? durationSeconds : 120.0);
+                            }),
+                            true);
+}
+
+void MainComponent::showExportStemFolderDialog(const ExportCaptureMode mode, const double durationSeconds)
+{
+    const auto defaultName = currentCompositionFile != juce::File()
+                                 ? currentCompositionFile.getFileNameWithoutExtension() + " stems"
+                                 : "GridCollider stems";
+    const auto start = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(defaultName);
+    const auto title = mode == ExportCaptureMode::stateStems ? "Export state stems to folder"
+                                                             : "Export lane stems to folder";
+
+    fileChooser = std::make_unique<juce::FileChooser>(title, start);
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                                 | juce::FileBrowserComponent::canSelectDirectories,
+                             [safeThis = juce::Component::SafePointer<MainComponent>(this), mode, durationSeconds](const juce::FileChooser& chooser)
+                             {
+                                 if (safeThis == nullptr)
+                                     return;
+
+                                 const auto folder = chooser.getResult();
+
+                                 if (folder != juce::File())
+                                     safeThis->exportStemWavs(mode, folder, durationSeconds);
+                             });
+}
+
 void MainComponent::exportStereoWav(juce::File file, const double durationSeconds)
 {
     if (file.getFileExtension().isEmpty())
@@ -2237,13 +2329,19 @@ void MainComponent::exportStereoWav(juce::File file, const double durationSecond
 
     {
         const std::lock_guard lock(exportCaptureMutex);
+        exportCaptureMode.store(static_cast<int>(ExportCaptureMode::master), std::memory_order_release);
         exportCaptureFile = file;
+        exportCaptureFolder = juce::File();
         exportCaptureSampleRate = sampleRate;
-        exportCaptureTargetSamples = targetSamples;
+        exportCaptureTargetSamples.store(targetSamples, std::memory_order_release);
         exportCaptureWritePosition.store(0, std::memory_order_release);
         exportCaptureComplete.store(false, std::memory_order_release);
         exportCaptureActive.store(false, std::memory_order_release);
         exportCaptureBuffer = std::move(capture);
+        exportStemTargets.clear();
+        exportStemCaptureBuffers.clear();
+        exportLaneCaptureMap.fill(-1);
+        exportStateCaptureMap.fill(-1);
     }
 
     exportStartedTransport = ! transportEngine.isPlaying();
@@ -2261,25 +2359,180 @@ void MainComponent::exportStereoWav(juce::File file, const double durationSecond
     repaint();
 }
 
+void MainComponent::exportStemWavs(const ExportCaptureMode mode, juce::File folder, const double durationSeconds)
+{
+    if (mode != ExportCaptureMode::stateStems && mode != ExportCaptureMode::laneStems)
+        return;
+
+    if (exportInProgress.exchange(true, std::memory_order_acq_rel))
+    {
+        statusLog.append("WAV export already running");
+        repaint();
+        return;
+    }
+
+    storeActiveGridSlot();
+    storeActiveTransitionCode();
+    storeActiveLane();
+
+    const auto sampleRate = currentAudioSampleRate > 0.0 ? currentAudioSampleRate : 44100.0;
+    const auto targetSamples = static_cast<int64_t>(std::llround(juce::jlimit(1.0, 3600.0, durationSeconds) * sampleRate));
+
+    if (targetSamples <= 0 || targetSamples > static_cast<int64_t>(std::numeric_limits<int>::max()))
+    {
+        exportInProgress.store(false, std::memory_order_release);
+        statusLog.append("Stem export failed: duration is too long");
+        repaint();
+        return;
+    }
+
+    if (! folder.exists())
+        folder.createDirectory();
+
+    if (! folder.isDirectory())
+    {
+        exportInProgress.store(false, std::memory_order_release);
+        statusLog.append("Stem export failed: choose a folder");
+        repaint();
+        return;
+    }
+
+    std::vector<ExportStemTarget> targets;
+    std::array<int, maximumMixerChannels> laneMap {};
+    std::array<int, 16> stateMap {};
+    laneMap.fill(-1);
+    stateMap.fill(-1);
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        for (int stateIndex = 0; stateIndex < static_cast<int>(compositionStates.size()); ++stateIndex)
+        {
+            const auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+            if (state.grids.empty())
+                continue;
+
+            const auto statePrefix = "S" + juce::String(stateIndex + 1).paddedLeft('0', 2);
+            const auto stateName = makeSafeStemFileName(state.name.isNotEmpty() ? state.name : "State " + juce::String(stateIndex + 1));
+
+            if (mode == ExportCaptureMode::stateStems)
+            {
+                stateMap[static_cast<std::size_t>(stateIndex)] = static_cast<int>(targets.size());
+                targets.push_back({ stateIndex,
+                                    -1,
+                                    statePrefix + "_" + stateName + ".wav" });
+                continue;
+            }
+
+            for (int laneIndex = 0; laneIndex < static_cast<int>(state.grids.size()); ++laneIndex)
+            {
+                const auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+                const auto mixerIndex = stateIndex * maximumGridsPerState + laneIndex;
+                if (mixerIndex < 0 || mixerIndex >= firstBusMeterIndex)
+                    continue;
+
+                const auto lanePrefix = "_L" + juce::String(laneIndex + 1).paddedLeft('0', 2);
+                const auto kind = lane.kind == CompositionGrid::Kind::supercollider ? "_SC_" : "_G_";
+                laneMap[static_cast<std::size_t>(mixerIndex)] = static_cast<int>(targets.size());
+                targets.push_back({ stateIndex,
+                                    laneIndex,
+                                    statePrefix + lanePrefix + kind + stateName + ".wav" });
+            }
+        }
+    }
+
+    if (targets.empty())
+    {
+        exportInProgress.store(false, std::memory_order_release);
+        statusLog.append("Stem export failed: no states or lanes to render");
+        repaint();
+        return;
+    }
+
+    const auto bytesPerStem = targetSamples * 2 * static_cast<int64_t>(sizeof(float));
+    const auto totalBytes = bytesPerStem * static_cast<int64_t>(targets.size());
+    constexpr int64_t maximumStemCaptureBytes = 1024ll * 1024ll * 1024ll;
+    if (totalBytes > maximumStemCaptureBytes)
+    {
+        exportInProgress.store(false, std::memory_order_release);
+        statusLog.append("Stem export failed: duration creates too much audio data. Use a shorter duration.");
+        repaint();
+        return;
+    }
+
+    std::vector<std::unique_ptr<juce::AudioBuffer<float>>> buffers;
+    buffers.reserve(targets.size());
+    for (int index = 0; index < static_cast<int>(targets.size()); ++index)
+    {
+        auto buffer = std::make_unique<juce::AudioBuffer<float>>(2, static_cast<int>(targetSamples));
+        buffer->clear();
+        buffers.push_back(std::move(buffer));
+    }
+
+    {
+        const std::lock_guard lock(exportCaptureMutex);
+        exportCaptureMode.store(static_cast<int>(mode), std::memory_order_release);
+        exportCaptureFile = juce::File();
+        exportCaptureFolder = folder;
+        exportCaptureSampleRate = sampleRate;
+        exportCaptureTargetSamples.store(targetSamples, std::memory_order_release);
+        exportCaptureWritePosition.store(0, std::memory_order_release);
+        exportCaptureComplete.store(false, std::memory_order_release);
+        exportCaptureActive.store(false, std::memory_order_release);
+        exportCaptureBuffer = nullptr;
+        exportStemTargets = std::move(targets);
+        exportStemCaptureBuffers = std::move(buffers);
+        exportLaneCaptureMap = laneMap;
+        exportStateCaptureMap = stateMap;
+    }
+
+    exportStartedTransport = ! transportEngine.isPlaying();
+
+    if (exportStartedTransport)
+    {
+        resetTransport();
+        compileScLanesForAllStates();
+        transportEngine.start();
+        updateTransportControls();
+    }
+
+    exportCaptureActive.store(true, std::memory_order_release);
+    statusLog.append("Recording " + juce::String(mode == ExportCaptureMode::stateStems ? "state" : "lane")
+                     + " stems: " + juce::String(durationSeconds, 1) + " seconds");
+    repaint();
+}
+
 void MainComponent::finishRealtimeWavExport()
 {
+    ExportCaptureMode mode = ExportCaptureMode::master;
     juce::File file;
+    juce::File folder;
     double sampleRate = 44100.0;
     int samplesToWrite = 0;
     std::unique_ptr<juce::AudioBuffer<float>> capture;
+    std::vector<ExportStemTarget> stemTargets;
+    std::vector<std::unique_ptr<juce::AudioBuffer<float>>> stemBuffers;
     const auto shouldStopTransport = exportStartedTransport;
 
     {
         const std::lock_guard lock(exportCaptureMutex);
         exportCaptureActive.store(false, std::memory_order_release);
+        mode = static_cast<ExportCaptureMode>(exportCaptureMode.load(std::memory_order_acquire));
         file = exportCaptureFile;
+        folder = exportCaptureFolder;
         sampleRate = exportCaptureSampleRate;
-        samplesToWrite = static_cast<int>(juce::jmin<int64_t>(exportCaptureTargetSamples,
+        samplesToWrite = static_cast<int>(juce::jmin<int64_t>(exportCaptureTargetSamples.load(std::memory_order_acquire),
                                                               exportCaptureWritePosition.load(std::memory_order_acquire)));
         capture = std::move(exportCaptureBuffer);
-        exportCaptureTargetSamples = 0;
+        stemTargets = std::move(exportStemTargets);
+        stemBuffers = std::move(exportStemCaptureBuffers);
+        exportCaptureTargetSamples.store(0, std::memory_order_release);
         exportCaptureFile = juce::File();
+        exportCaptureFolder = juce::File();
         exportStartedTransport = false;
+        exportCaptureMode.store(static_cast<int>(ExportCaptureMode::master), std::memory_order_release);
+        exportLaneCaptureMap.fill(-1);
+        exportStateCaptureMap.fill(-1);
     }
 
     if (shouldStopTransport)
@@ -2288,7 +2541,9 @@ void MainComponent::finishRealtimeWavExport()
         updateTransportControls();
     }
 
-    if (capture == nullptr || samplesToWrite <= 0)
+    if ((mode == ExportCaptureMode::master && capture == nullptr)
+        || (mode != ExportCaptureMode::master && stemBuffers.empty())
+        || samplesToWrite <= 0)
     {
         exportCaptureActive.store(false, std::memory_order_release);
         exportInProgress.store(false, std::memory_order_release);
@@ -2298,44 +2553,103 @@ void MainComponent::finishRealtimeWavExport()
     }
 
     std::thread([safeThis = juce::Component::SafePointer<MainComponent>(this),
+                 mode,
                  file,
+                 folder,
                  sampleRate,
                  samplesToWrite,
-                 capturedAudio = std::move(capture)]() mutable
+                 capturedAudio = std::move(capture),
+                 capturedStemTargets = std::move(stemTargets),
+                 capturedStemBuffers = std::move(stemBuffers)]() mutable
     {
         juce::String message;
-        auto peak = 0.0f;
-        for (int channel = 0; channel < capturedAudio->getNumChannels(); ++channel)
-            peak = juce::jmax(peak, capturedAudio->getMagnitude(channel, 0, samplesToWrite));
-
         juce::WavAudioFormat wavFormat;
-        std::unique_ptr<juce::OutputStream> outputStream = file.createOutputStream();
 
-        if (outputStream == nullptr)
+        auto writeBuffer = [&wavFormat, sampleRate, samplesToWrite](const juce::File& destination,
+                                                                    juce::AudioBuffer<float>& audio,
+                                                                    float& peakOut) -> bool
         {
-            message = "WAV export failed: could not write " + file.getFileName();
-        }
-        else
-        {
+            peakOut = 0.0f;
+            const auto samples = juce::jmin(samplesToWrite, audio.getNumSamples());
+            for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+                peakOut = juce::jmax(peakOut, audio.getMagnitude(channel, 0, samples));
+
+            std::unique_ptr<juce::OutputStream> outputStream = destination.createOutputStream();
+            if (outputStream == nullptr)
+                return false;
+
             auto writer = wavFormat.createWriterFor(outputStream,
                                                     juce::AudioFormatWriterOptions()
                                                         .withSampleRate(sampleRate)
                                                         .withChannelLayout(juce::AudioChannelSet::stereo())
                                                         .withBitsPerSample(24));
-
             if (writer == nullptr)
+                return false;
+
+            writer->writeFromAudioSampleBuffer(audio, 0, samples);
+            writer.reset();
+            return true;
+        };
+
+        if (mode == ExportCaptureMode::master)
+        {
+            float peak = 0.0f;
+            if (! writeBuffer(file, *capturedAudio, peak))
             {
-                message = "WAV export failed: could not create WAV writer";
+                message = "WAV export failed: could not write " + file.getFileName();
             }
             else
             {
-                writer->writeFromAudioSampleBuffer(*capturedAudio, 0, samplesToWrite);
-                writer.reset();
                 const auto detail = " peak " + juce::String(peak, 5) + " samples " + juce::String(samplesToWrite);
                 message = peak > 0.0001f
                               ? "Exported WAV: " + file.getFileName() + detail
                               : "Exported WAV appears silent: " + file.getFileName() + detail;
             }
+        }
+        else
+        {
+            int written = 0;
+            int failed = 0;
+            int silent = 0;
+            float highestPeak = 0.0f;
+
+            const auto count = juce::jmin(static_cast<int>(capturedStemTargets.size()), static_cast<int>(capturedStemBuffers.size()));
+            for (int index = 0; index < count; ++index)
+            {
+                auto* buffer = capturedStemBuffers[static_cast<std::size_t>(index)].get();
+                if (buffer == nullptr)
+                {
+                    ++failed;
+                    continue;
+                }
+
+                float peak = 0.0f;
+                const auto destination = folder.getChildFile(capturedStemTargets[static_cast<std::size_t>(index)].fileName);
+                if (writeBuffer(destination, *buffer, peak))
+                {
+                    ++written;
+                    highestPeak = juce::jmax(highestPeak, peak);
+                    if (peak <= 0.0001f)
+                        ++silent;
+                }
+                else
+                {
+                    ++failed;
+                }
+            }
+
+            const auto label = mode == ExportCaptureMode::stateStems ? juce::String("state")
+                                                                     : juce::String("lane");
+            message = "Exported " + juce::String(written) + " " + label + " stem"
+                    + (written == 1 ? "" : "s")
+                    + " to " + folder.getFileName()
+                    + " peak " + juce::String(highestPeak, 5);
+
+            if (silent > 0)
+                message += " | " + juce::String(silent) + " silent";
+
+            if (failed > 0)
+                message += " | " + juce::String(failed) + " failed";
         }
 
         juce::MessageManager::callAsync([safeThis, message]
@@ -6323,6 +6637,52 @@ void MainComponent::processMixerPluginSlots(juce::AudioBuffer<float>& buffer, co
     }
 }
 
+void MainComponent::captureStemBlock(const int stateIndex,
+                                     const int laneIndex,
+                                     const juce::AudioBuffer<float>& source,
+                                     const float level,
+                                     const float pan,
+                                     const int samples)
+{
+    if (! exportCaptureActive.load(std::memory_order_acquire) || samples <= 0)
+        return;
+
+    const auto mode = static_cast<ExportCaptureMode>(exportCaptureMode.load(std::memory_order_acquire));
+    if (mode == ExportCaptureMode::master)
+        return;
+
+    const auto position = exportCaptureWritePosition.load(std::memory_order_relaxed);
+    const auto remaining = exportCaptureTargetSamples.load(std::memory_order_acquire) - position;
+    if (remaining <= 0)
+        return;
+
+    const auto samplesToCopy = static_cast<int>(juce::jmin<int64_t>(samples, remaining));
+    const auto mixerIndex = stateIndex * maximumGridsPerState + laneIndex;
+    if (stateIndex < 0 || stateIndex >= static_cast<int>(exportStateCaptureMap.size())
+        || mixerIndex < 0 || mixerIndex >= firstBusMeterIndex)
+        return;
+
+    const auto targetIndex = mode == ExportCaptureMode::stateStems
+                                 ? exportStateCaptureMap[static_cast<std::size_t>(stateIndex)]
+                                 : exportLaneCaptureMap[static_cast<std::size_t>(mixerIndex)];
+
+    if (targetIndex < 0)
+        return;
+
+    const std::lock_guard lock(exportCaptureMutex);
+    if (targetIndex >= static_cast<int>(exportStemCaptureBuffers.size()))
+        return;
+
+    auto* target = exportStemCaptureBuffers[static_cast<std::size_t>(targetIndex)].get();
+    if (target == nullptr || position + samplesToCopy > target->getNumSamples())
+        return;
+
+    const auto leftGain = level * (pan <= 0.0f ? 1.0f : 1.0f - pan);
+    const auto rightGain = level * (pan >= 0.0f ? 1.0f : 1.0f + pan);
+    target->addFrom(0, static_cast<int>(position), source, 0, 0, samplesToCopy, leftGain);
+    target->addFrom(1, static_cast<int>(position), source, juce::jmin(1, source.getNumChannels() - 1), 0, samplesToCopy, rightGain);
+}
+
 void MainComponent::syncMixerRuntimeState()
 {
     for (int index = 0; index < maximumMixerChannels; ++index)
@@ -6435,6 +6795,12 @@ void MainComponent::mixStemAudioToOutput(juce::AudioBuffer<float>& output)
         const auto level = mixerRuntimeLevel[static_cast<std::size_t>(laneIndex)].load(std::memory_order_relaxed);
         const auto pan = mixerRuntimePan[static_cast<std::size_t>(laneIndex)].load(std::memory_order_relaxed);
         const auto outputBus = mixerRuntimeOutputBus[static_cast<std::size_t>(laneIndex)].load(std::memory_order_relaxed);
+        captureStemBlock(laneIndex / maximumGridsPerState,
+                         laneIndex % maximumGridsPerState,
+                         laneScratchBuffer,
+                         level,
+                         pan,
+                         samples);
 
         auto peak = laneScratchBuffer.getMagnitude(0, samples) * level;
         peak = juce::jmax(peak, laneScratchBuffer.getMagnitude(1, samples) * level);

@@ -97,6 +97,8 @@ private:
                 menu.addItem(3, "Save As...");
                 menu.addSeparator();
                 menu.addItem(4, "Export Stereo WAV...");
+                menu.addItem(5, "Export State Stems...");
+                menu.addItem(6, "Export Lane Stems...");
             }
             else if (menuIndex == 1)
             {
@@ -151,6 +153,10 @@ private:
                 mainComponent->menuSaveCompositionAs();
             else if (menuItemID == 4)
                 mainComponent->menuExportStereoWav();
+            else if (menuItemID == 5)
+                mainComponent->menuExportStateStems();
+            else if (menuItemID == 6)
+                mainComponent->menuExportLaneStems();
             else if (menuItemID == 9)
                 mainComponent->menuShowMainView();
             else if (menuItemID == 10)
