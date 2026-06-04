@@ -429,18 +429,32 @@ private:
         std::function<void(int, int)> onOpen;
         std::function<void(int, int)> onChoose;
 
-        void setSlot(const int newChannelIndex, const int newSlotIndex, juce::String newName, const bool newLoaded)
+        enum class State
+        {
+            empty,
+            loading,
+            failed,
+            bypassed,
+            loaded
+        };
+
+        void setSlot(const int newChannelIndex, const int newSlotIndex, juce::String newName, const State newState)
         {
             channelIndex = newChannelIndex;
             slotIndex = newSlotIndex;
             name = std::move(newName);
-            loaded = newLoaded;
+            state = newState;
             repaint();
         }
 
         void mouseUp(const juce::MouseEvent& event) override
         {
-            if (event.getNumberOfClicks() < 2 && onOpen != nullptr)
+            if (event.mods.isPopupMenu())
+                return;
+
+            if (event.getNumberOfClicks() < 2
+                && (state == State::loaded || state == State::bypassed)
+                && onOpen != nullptr)
                 onOpen(channelIndex, slotIndex);
         }
 
@@ -450,14 +464,53 @@ private:
                 onChoose(channelIndex, slotIndex);
         }
 
+        void mouseDown(const juce::MouseEvent& event) override
+        {
+            if (! event.mods.isPopupMenu())
+                return;
+
+            juce::PopupMenu menu;
+            menu.addItem(1, "Choose plugin...");
+            menu.addItem(2, "Bypass / enable", state == State::loaded || state == State::bypassed);
+            menu.addItem(3, "Clear", state != State::empty);
+            menu.showMenuAsync(juce::PopupMenu::Options(),
+                               [safeThis = juce::Component::SafePointer<MixerPluginSlotButton>(this),
+                                channel = channelIndex,
+                                slot = slotIndex](const int result)
+                               {
+                                   if (safeThis == nullptr)
+                                       return;
+
+                                   if (result == 1 && safeThis->onChoose != nullptr)
+                                       safeThis->onChoose(channel, slot);
+                                   else if (result == 2 && safeThis->onToggleBypass != nullptr)
+                                       safeThis->onToggleBypass(channel, slot);
+                                   else if (result == 3 && safeThis->onClear != nullptr)
+                                       safeThis->onClear(channel, slot);
+                               });
+        }
+
+        std::function<void(int, int)> onToggleBypass;
+        std::function<void(int, int)> onClear;
+
         void paint(juce::Graphics& graphics) override
         {
             const auto bounds = getLocalBounds().toFloat();
-            const auto background = loaded ? juce::Colour::fromRGB(33, 35, 35)
+            const auto loaded = state == State::loaded || state == State::bypassed;
+            const auto background = state == State::failed ? juce::Colour::fromRGB(70, 32, 32)
+                                  : state == State::loading ? juce::Colour::fromRGB(54, 52, 38)
+                                  : state == State::bypassed ? juce::Colour::fromRGB(42, 43, 42)
+                                  : loaded ? juce::Colour::fromRGB(33, 35, 35)
                                            : juce::Colour::fromRGB(50, 51, 49);
-            const auto outline = loaded ? juce::Colour::fromRGB(128, 156, 184)
+            const auto outline = state == State::failed ? juce::Colour::fromRGB(220, 92, 92)
+                               : state == State::loading ? juce::Colour::fromRGB(218, 190, 74)
+                               : state == State::bypassed ? juce::Colour::fromRGB(112, 114, 112)
+                               : loaded ? juce::Colour::fromRGB(128, 156, 184)
                                         : juce::Colour::fromRGB(22, 23, 22);
-            const auto text = loaded ? juce::Colour::fromRGB(235, 237, 238)
+            const auto text = state == State::failed ? juce::Colour::fromRGB(255, 205, 205)
+                            : state == State::loading ? juce::Colour::fromRGB(250, 230, 160)
+                            : state == State::bypassed ? juce::Colour::fromRGB(165, 166, 162)
+                            : loaded ? juce::Colour::fromRGB(235, 237, 238)
                                      : juce::Colour::fromRGB(170, 173, 170);
 
             graphics.setColour(background);
@@ -466,14 +519,19 @@ private:
             graphics.drawRoundedRectangle(bounds.reduced(0.5f), 2.0f, 1.0f);
             graphics.setColour(text);
             graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 6.8f, juce::Font::bold));
-            graphics.drawFittedText(loaded ? name : "--", getLocalBounds().reduced(2, 0), juce::Justification::centred, 1);
+            const auto label = state == State::loading ? juce::String("LOAD")
+                             : state == State::failed ? juce::String("FAIL")
+                             : state == State::bypassed ? "!" + name
+                             : loaded ? name
+                                      : juce::String("--");
+            graphics.drawFittedText(label, getLocalBounds().reduced(2, 0), juce::Justification::centred, 1);
         }
 
     private:
         int channelIndex = 0;
         int slotIndex = 0;
         juce::String name;
-        bool loaded = false;
+        State state = State::empty;
     };
 
     class EventMonitorComponent final : public juce::Component
@@ -818,14 +876,21 @@ private:
     void scanAndStoreAvailablePlugins();
     void showMixerPluginChooser(int channelIndex, int slotIndex);
     void loadMixerPluginSlot(int channelIndex, int slotIndex, const juce::PluginDescription& description);
+    void restoreMixerPluginSlot(int channelIndex, int slotIndex, const juce::String& identifier, const juce::MemoryBlock& state);
     void clearMixerPluginSlot(int channelIndex, int slotIndex);
+    void toggleMixerPluginSlotBypass(int channelIndex, int slotIndex);
     void showMixerPluginEditor(int channelIndex, int slotIndex);
+    void prepareMixerPluginsForPlayback();
+    void releaseMixerPluginResources();
     void releaseMixerPlugins();
     void processMixerPluginSlots(juce::AudioBuffer<float>& buffer, int channelIndex);
     void syncMixerRuntimeState();
     void mixStemAudioToOutput(juce::AudioBuffer<float>& output);
+    [[nodiscard]] juce::var serialiseMixerPluginSlots() const;
+    void restoreMixerPluginSlots(const juce::var& value);
     [[nodiscard]] juce::File getPluginListFile() const;
     [[nodiscard]] juce::String getMixerPluginSlotName(int channelIndex, int slotIndex) const;
+    [[nodiscard]] MixerPluginSlotButton::State getMixerPluginSlotButtonState(int channelIndex, int slotIndex) const;
     void applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane, float transitionGain = 1.0f) const;
     void applyBusMixToEvents(std::vector<InternalEvent>& events, int busIndex) const;
     void configureLaneCodePane();
@@ -958,6 +1023,10 @@ private:
         std::unique_ptr<juce::AudioPluginInstance> instance;
         std::unique_ptr<juce::DocumentWindow> editorWindow;
         bool loading = false;
+        bool failed = false;
+        bool bypassed = false;
+        juce::String error;
+        juce::MemoryBlock pendingState;
     };
 
     struct CompositionState

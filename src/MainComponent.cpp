@@ -1828,6 +1828,7 @@ void MainComponent::prepareToPlay(const int samplesPerBlockExpected, const doubl
     scStemBuffer.setSize(stemOutputChannels, currentAudioBlockSize, false, true, true);
     laneScratchBuffer.setSize(2, currentAudioBlockSize, false, true, true);
     busStemBuffer.setSize(mixerBusCount * 2, currentAudioBlockSize, false, true, true);
+    prepareMixerPluginsForPlayback();
 
     if (embeddedScAudio.prepare(sampleRate, samplesPerBlockExpected, stemOutputChannels))
     {
@@ -1914,7 +1915,7 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
 
 void MainComponent::releaseResources()
 {
-    releaseMixerPlugins();
+    releaseMixerPluginResources();
     embeddedScAudio.release();
 }
 
@@ -2407,6 +2408,7 @@ juce::var MainComponent::serialiseComposition() const
         mixerBusArray.add(juce::var(busObject.release()));
     }
     root->setProperty("mixerBuses", mixerBusArray);
+    root->setProperty("mixerPluginSlots", serialiseMixerPluginSlots());
 
     juce::Array<juce::var> channelMapArray;
     for (const auto& instrument : channelInstrumentMap)
@@ -2517,6 +2519,8 @@ juce::Result MainComponent::restoreComposition(const juce::var& document)
             bus.soloed = static_cast<bool>(busObject->getProperty("soloed"));
         }
     }
+
+    restoreMixerPluginSlots(root->getProperty("mixerPluginSlots"));
 
     if (const auto* mapVar = root->getProperty("channelInstrumentMap").getArray())
     {
@@ -4047,6 +4051,14 @@ void MainComponent::configureMixerView()
             {
                 showMixerPluginChooser(channelIndex, pluginSlot);
             };
+            slotButton.onToggleBypass = [this](const int channelIndex, const int pluginSlot)
+            {
+                toggleMixerPluginSlotBypass(channelIndex, pluginSlot);
+            };
+            slotButton.onClear = [this](const int channelIndex, const int pluginSlot)
+            {
+                clearMixerPluginSlot(channelIndex, pluginSlot);
+            };
         }
 
         label.setJustificationType(juce::Justification::centred);
@@ -4410,7 +4422,7 @@ void MainComponent::refreshMixerView()
         {
             auto& slotButton = mixerPluginSlotButtons[static_cast<std::size_t>(index)][static_cast<std::size_t>(slotIndex)];
             const auto slotName = getMixerPluginSlotName(pluginChannelIndex, slotIndex);
-            slotButton.setSlot(pluginChannelIndex, slotIndex, slotName, slotName.isNotEmpty());
+            slotButton.setSlot(pluginChannelIndex, slotIndex, slotName, getMixerPluginSlotButtonState(pluginChannelIndex, slotIndex));
             slotButton.setBounds(channel.master
                                      ? juce::Rectangle<int>(stripBounds.getX() + 6,
                                                             stripBounds.getY() + 36 + slotIndex * 20,
@@ -5862,6 +5874,88 @@ void MainComponent::saveKnownPluginList() const
     }
 }
 
+juce::var MainComponent::serialiseMixerPluginSlots() const
+{
+    juce::Array<juce::var> channels;
+    const juce::ScopedLock lock(mixerPluginLock);
+
+    for (int channelIndex = 0; channelIndex < maximumMixerChannels; ++channelIndex)
+    {
+        juce::Array<juce::var> slots;
+        for (int slotIndex = 0; slotIndex < 2; ++slotIndex)
+        {
+            const auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+            auto object = std::make_unique<juce::DynamicObject>();
+            object->setProperty("name", slot.name);
+            object->setProperty("identifier", slot.identifier);
+            object->setProperty("bypassed", slot.bypassed);
+            object->setProperty("failed", slot.failed);
+
+            if (slot.instance != nullptr)
+            {
+                juce::MemoryBlock state;
+                slot.instance->getStateInformation(state);
+                object->setProperty("state", state.toBase64Encoding());
+            }
+            else if (slot.pendingState.getSize() > 0)
+            {
+                object->setProperty("state", slot.pendingState.toBase64Encoding());
+            }
+
+            slots.add(juce::var(object.release()));
+        }
+        channels.add(slots);
+    }
+
+    return channels;
+}
+
+void MainComponent::restoreMixerPluginSlots(const juce::var& value)
+{
+    releaseMixerPlugins();
+
+    const auto* channels = value.getArray();
+    if (channels == nullptr)
+        return;
+
+    for (int channelIndex = 0; channelIndex < juce::jmin(maximumMixerChannels, channels->size()); ++channelIndex)
+    {
+        const auto* slots = channels->getReference(channelIndex).getArray();
+        if (slots == nullptr)
+            continue;
+
+        for (int slotIndex = 0; slotIndex < juce::jmin(2, slots->size()); ++slotIndex)
+        {
+            const auto* object = slots->getReference(slotIndex).getDynamicObject();
+            if (object == nullptr)
+                continue;
+
+            const auto identifier = object->getProperty("identifier").toString();
+            if (identifier.isEmpty())
+                continue;
+
+            juce::MemoryBlock state;
+            const auto stateText = object->getProperty("state").toString();
+            if (stateText.isNotEmpty())
+                state.fromBase64Encoding(stateText);
+
+            {
+                const juce::ScopedLock lock(mixerPluginLock);
+                auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+                slot.name = object->getProperty("name").toString();
+                slot.identifier = identifier;
+                slot.bypassed = static_cast<bool>(object->getProperty("bypassed"));
+                slot.failed = false;
+                slot.error.clear();
+                slot.pendingState = state;
+                slot.loading = true;
+            }
+
+            restoreMixerPluginSlot(channelIndex, slotIndex, identifier, state);
+        }
+    }
+}
+
 void MainComponent::scanAndStoreAvailablePlugins()
 {
     for (auto* format : pluginFormatManager.getFormats())
@@ -5938,7 +6032,10 @@ void MainComponent::showMixerPluginChooser(const int channelIndex, const int slo
 
                            const auto pluginIndex = result - 1000;
                            if (pluginIndex >= 0 && pluginIndex < static_cast<int>(types.size()))
+                           {
+                               safeThis->clearMixerPluginSlot(channelIndex, slotIndex);
                                safeThis->loadMixerPluginSlot(channelIndex, slotIndex, types[static_cast<std::size_t>(pluginIndex)]);
+                           }
                        });
 }
 
@@ -5955,6 +6052,10 @@ void MainComponent::loadMixerPluginSlot(const int channelIndex,
         slot.loading = true;
         slot.name = description.name;
         slot.identifier = description.createIdentifierString();
+        slot.failed = false;
+        slot.error.clear();
+        if (slot.instance != nullptr)
+            slot.instance->releaseResources();
         slot.editorWindow = nullptr;
         slot.instance = nullptr;
     }
@@ -5975,27 +6076,87 @@ void MainComponent::loadMixerPluginSlot(const int channelIndex,
                                                       if (safeThis == nullptr)
                                                           return;
 
-                                                      const juce::ScopedLock lock(safeThis->mixerPluginLock);
-                                                      auto& slot = safeThis->mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
-                                                      slot.loading = false;
+                                                      juce::String statusMessage;
 
-                                                      if (instance == nullptr)
                                                       {
-                                                          slot.name.clear();
-                                                          slot.identifier.clear();
-                                                          safeThis->statusLog.append("Plugin failed: " + (error.isNotEmpty() ? error : name));
-                                                          safeThis->refreshMixerView();
-                                                          return;
+                                                          const juce::ScopedLock lock(safeThis->mixerPluginLock);
+                                                          auto& slot = safeThis->mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+                                                          if (slot.identifier != identifier)
+                                                              return;
+
+                                                          slot.loading = false;
+
+                                                          if (instance == nullptr)
+                                                          {
+                                                              slot.name = name;
+                                                              slot.identifier = identifier;
+                                                              slot.failed = true;
+                                                              slot.error = error;
+                                                              statusMessage = "Plugin failed: " + (error.isNotEmpty() ? error : name);
+                                                          }
+                                                          else
+                                                          {
+                                                              instance->setRateAndBufferSizeDetails(safeThis->currentAudioSampleRate, safeThis->currentAudioBlockSize);
+                                                              instance->prepareToPlay(safeThis->currentAudioSampleRate, safeThis->currentAudioBlockSize);
+                                                              slot.instance = std::move(instance);
+                                                              slot.name = name;
+                                                              slot.identifier = identifier;
+                                                              slot.failed = false;
+                                                              slot.error.clear();
+                                                              if (slot.pendingState.getSize() > 0)
+                                                              {
+                                                                  slot.instance->setStateInformation(slot.pendingState.getData(),
+                                                                                                      static_cast<int>(slot.pendingState.getSize()));
+                                                                  slot.pendingState.reset();
+                                                              }
+                                                              statusMessage = "Loaded plugin: " + name;
+                                                          }
                                                       }
 
-                                                      instance->setRateAndBufferSizeDetails(safeThis->currentAudioSampleRate, safeThis->currentAudioBlockSize);
-                                                      instance->prepareToPlay(safeThis->currentAudioSampleRate, safeThis->currentAudioBlockSize);
-                                                      slot.instance = std::move(instance);
-                                                      slot.name = name;
-                                                      slot.identifier = identifier;
-                                                      safeThis->statusLog.append("Loaded plugin: " + name);
+                                                      if (statusMessage.isNotEmpty())
+                                                          safeThis->statusLog.append(statusMessage);
                                                       safeThis->refreshMixerView();
                                                   });
+}
+
+void MainComponent::restoreMixerPluginSlot(const int channelIndex,
+                                           const int slotIndex,
+                                           const juce::String& identifier,
+                                           const juce::MemoryBlock& state)
+{
+    if (channelIndex < 0 || channelIndex >= maximumMixerChannels || slotIndex < 0 || slotIndex >= 2 || identifier.isEmpty())
+        return;
+
+    auto description = knownPluginList.getTypeForIdentifierString(identifier);
+    if (description == nullptr)
+    {
+        juce::String slotName;
+        {
+            const juce::ScopedLock lock(mixerPluginLock);
+            auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+            slot.loading = false;
+            slot.failed = true;
+            slot.error = "Plugin not in scanned list";
+            slot.pendingState = state;
+            slotName = slot.name;
+        }
+        statusLog.append("Plugin unavailable: " + (slotName.isNotEmpty() ? slotName : identifier));
+        refreshMixerView();
+        return;
+    }
+
+    {
+        const juce::ScopedLock lock(mixerPluginLock);
+        auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+        slot.pendingState = state;
+        slot.name = description->name;
+        slot.identifier = identifier;
+        slot.loading = true;
+        slot.failed = false;
+        slot.error.clear();
+    }
+
+    loadMixerPluginSlot(channelIndex, slotIndex, *description);
 }
 
 void MainComponent::clearMixerPluginSlot(const int channelIndex, const int slotIndex)
@@ -6003,15 +6164,42 @@ void MainComponent::clearMixerPluginSlot(const int channelIndex, const int slotI
     if (channelIndex < 0 || channelIndex >= maximumMixerChannels || slotIndex < 0 || slotIndex >= 2)
         return;
 
-    const juce::ScopedLock lock(mixerPluginLock);
-    auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
-    if (slot.instance != nullptr)
-        slot.instance->releaseResources();
-    slot.editorWindow = nullptr;
-    slot.instance = nullptr;
-    slot.name.clear();
-    slot.identifier.clear();
-    slot.loading = false;
+    {
+        const juce::ScopedLock lock(mixerPluginLock);
+        auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+        if (slot.instance != nullptr)
+            slot.instance->releaseResources();
+        slot.editorWindow = nullptr;
+        slot.instance = nullptr;
+        slot.name.clear();
+        slot.identifier.clear();
+        slot.loading = false;
+        slot.failed = false;
+        slot.bypassed = false;
+        slot.error.clear();
+        slot.pendingState.reset();
+    }
+
+    refreshMixerView();
+}
+
+void MainComponent::toggleMixerPluginSlotBypass(const int channelIndex, const int slotIndex)
+{
+    if (channelIndex < 0 || channelIndex >= maximumMixerChannels || slotIndex < 0 || slotIndex >= 2)
+        return;
+
+    juce::String statusMessage;
+    {
+        const juce::ScopedLock lock(mixerPluginLock);
+        auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+        if (slot.instance == nullptr)
+            return;
+
+        slot.bypassed = ! slot.bypassed;
+        statusMessage = slot.name + (slot.bypassed ? " bypassed" : " enabled");
+    }
+
+    statusLog.append(statusMessage);
     refreshMixerView();
 }
 
@@ -6061,6 +6249,35 @@ void MainComponent::showMixerPluginEditor(const int channelIndex, const int slot
     slot.editorWindow = std::make_unique<PluginEditorWindow>(slot.name, std::move(editor));
 }
 
+void MainComponent::prepareMixerPluginsForPlayback()
+{
+    const juce::ScopedLock lock(mixerPluginLock);
+    for (auto& channelSlots : mixerPluginSlots)
+    {
+        for (auto& slot : channelSlots)
+        {
+            if (slot.instance == nullptr)
+                continue;
+
+            slot.instance->setRateAndBufferSizeDetails(currentAudioSampleRate, currentAudioBlockSize);
+            slot.instance->prepareToPlay(currentAudioSampleRate, currentAudioBlockSize);
+        }
+    }
+}
+
+void MainComponent::releaseMixerPluginResources()
+{
+    const juce::ScopedLock lock(mixerPluginLock);
+    for (auto& channelSlots : mixerPluginSlots)
+    {
+        for (auto& slot : channelSlots)
+        {
+            if (slot.instance != nullptr)
+                slot.instance->releaseResources();
+        }
+    }
+}
+
 void MainComponent::releaseMixerPlugins()
 {
     const juce::ScopedLock lock(mixerPluginLock);
@@ -6073,6 +6290,12 @@ void MainComponent::releaseMixerPlugins()
                 slot.instance->releaseResources();
             slot.instance = nullptr;
             slot.loading = false;
+            slot.failed = false;
+            slot.bypassed = false;
+            slot.name.clear();
+            slot.identifier.clear();
+            slot.error.clear();
+            slot.pendingState.reset();
         }
     }
 }
@@ -6091,6 +6314,8 @@ void MainComponent::processMixerPluginSlots(juce::AudioBuffer<float>& buffer, co
     for (auto& slot : slots)
     {
         if (slot.instance == nullptr)
+            continue;
+        if (slot.bypassed)
             continue;
 
         slot.instance->processBlock(buffer, mixerPluginMidiBuffer);
@@ -6282,6 +6507,24 @@ juce::String MainComponent::getMixerPluginSlotName(const int channelIndex, const
     if (slot.loading)
         return "LOAD";
     return slot.name;
+}
+
+MainComponent::MixerPluginSlotButton::State MainComponent::getMixerPluginSlotButtonState(const int channelIndex, const int slotIndex) const
+{
+    if (channelIndex < 0 || channelIndex >= maximumMixerChannels || slotIndex < 0 || slotIndex >= 2)
+        return MixerPluginSlotButton::State::empty;
+
+    const juce::ScopedLock lock(mixerPluginLock);
+    const auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+    if (slot.loading)
+        return MixerPluginSlotButton::State::loading;
+    if (slot.failed)
+        return MixerPluginSlotButton::State::failed;
+    if (slot.instance != nullptr && slot.bypassed)
+        return MixerPluginSlotButton::State::bypassed;
+    if (slot.instance != nullptr || slot.identifier.isNotEmpty())
+        return MixerPluginSlotButton::State::loaded;
+    return MixerPluginSlotButton::State::empty;
 }
 
 void MainComponent::applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane, const float transitionGain) const
