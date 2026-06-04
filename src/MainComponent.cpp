@@ -716,6 +716,7 @@ void forceBlackEditorText(juce::TextEditor& editor)
 MainComponent::MainComponent()
     : gridEditor(gridModel),
       transitionCodeEditor(transitionCodeDocument, &scCodeTokeniser),
+      stateInspectorTransitionEditor(transitionCodeDocument, &scCodeTokeniser),
       laneScCodeEditor(laneScCodeDocument, &scCodeTokeniser),
       instrumentCodeEditor(instrumentCodeDocument, &scCodeTokeniser)
 {
@@ -756,6 +757,7 @@ MainComponent::MainComponent()
     configurePatternControls();
     configureTransitionCodePane();
     configureEventMonitor();
+    configureStateInspectorView();
     configureTransportControls();
     configureStateGraph();
     configureGridSlotControls();
@@ -846,6 +848,9 @@ void MainComponent::menuShowMainView()
     mixerViewVisible = false;
     arrangementViewVisible = false;
     instrumentsViewVisible = false;
+    transitionsViewVisible = false;
+    eventMonitorViewVisible = false;
+    stateInspectorViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     showActiveLane();
@@ -858,6 +863,9 @@ void MainComponent::menuToggleMixerView()
     mixerViewVisible = true;
     arrangementViewVisible = false;
     instrumentsViewVisible = false;
+    transitionsViewVisible = false;
+    eventMonitorViewVisible = false;
+    stateInspectorViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     refreshMixerView();
@@ -870,6 +878,9 @@ void MainComponent::menuToggleArrangementView()
     arrangementViewVisible = true;
     mixerViewVisible = false;
     instrumentsViewVisible = false;
+    transitionsViewVisible = false;
+    eventMonitorViewVisible = false;
+    stateInspectorViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     refreshArrangementView();
@@ -882,9 +893,58 @@ void MainComponent::menuToggleInstrumentsView()
     instrumentsViewVisible = true;
     mixerViewVisible = false;
     arrangementViewVisible = false;
+    transitionsViewVisible = false;
+    eventMonitorViewVisible = false;
+    stateInspectorViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     refreshInstrumentView();
+    resized();
+    repaint();
+}
+
+void MainComponent::menuToggleTransitionsView()
+{
+    transitionsViewVisible = true;
+    mixerViewVisible = false;
+    arrangementViewVisible = false;
+    instrumentsViewVisible = false;
+    eventMonitorViewVisible = false;
+    stateInspectorViewVisible = false;
+    activeSplitterDrag = SplitterDrag::none;
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+    resized();
+    transitionCodeEditor.grabKeyboardFocus();
+    repaint();
+}
+
+void MainComponent::menuToggleEventMonitorView()
+{
+    eventMonitorViewVisible = true;
+    mixerViewVisible = false;
+    arrangementViewVisible = false;
+    instrumentsViewVisible = false;
+    transitionsViewVisible = false;
+    stateInspectorViewVisible = false;
+    activeSplitterDrag = SplitterDrag::none;
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+    refreshEventMonitor();
+    eventMonitor.scrollToEnd();
+    resized();
+    repaint();
+}
+
+void MainComponent::menuToggleStateInspectorView()
+{
+    stateInspectorViewVisible = true;
+    mixerViewVisible = false;
+    arrangementViewVisible = false;
+    instrumentsViewVisible = false;
+    transitionsViewVisible = false;
+    eventMonitorViewVisible = false;
+    activeSplitterDrag = SplitterDrag::none;
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+    refreshStateInspectorView();
     resized();
     repaint();
 }
@@ -907,6 +967,21 @@ bool MainComponent::isArrangementViewVisible() const noexcept
 bool MainComponent::isInstrumentsViewVisible() const noexcept
 {
     return instrumentsViewVisible;
+}
+
+bool MainComponent::isTransitionsViewVisible() const noexcept
+{
+    return transitionsViewVisible;
+}
+
+bool MainComponent::isEventMonitorViewVisible() const noexcept
+{
+    return eventMonitorViewVisible;
+}
+
+bool MainComponent::isStateInspectorViewVisible() const noexcept
+{
+    return stateInspectorViewVisible;
 }
 
 MainComponent::MainLayout MainComponent::calculateMainLayout() const
@@ -942,7 +1017,7 @@ MainComponent::MainLayout MainComponent::calculateMainLayout() const
 MainComponent::SplitterDrag MainComponent::splitterAt(const juce::Point<int> position) const
 {
     const auto layout = calculateMainLayout();
-    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible;
+    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible || transitionsViewVisible || eventMonitorViewVisible || stateInspectorViewVisible;
 
     if (optionalWorkspaceVisible)
         return SplitterDrag::none;
@@ -978,7 +1053,7 @@ void MainComponent::paint(juce::Graphics& graphics)
 
     const auto layout = calculateMainLayout();
     auto header = layout.header;
-    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible;
+    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible || transitionsViewVisible || eventMonitorViewVisible || stateInspectorViewVisible;
 
     graphics.setColour(lewittPanel());
     graphics.fillRoundedRectangle(layout.header.toFloat(), panelRadius);
@@ -1091,16 +1166,20 @@ void MainComponent::resized()
     const auto layout = calculateMainLayout();
     auto header = layout.header;
     auto transitionArea = layout.transitionPane;
-    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible;
+    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible || transitionsViewVisible || eventMonitorViewVisible || stateInspectorViewVisible;
 
     auto lowerWorkspace = getLocalBounds().reduced(outerMargin);
     lowerWorkspace.removeFromTop(optionalWorkspaceVisible
                                      ? headerHeight + headerToTransitionGap
                                      : headerHeight + headerToTransitionGap + layout.transitionPane.getHeight() + transitionSplitterThickness);
+    stateInspectorView.setVisible(false);
+    mixerMasterContent.setVisible(false);
 
     if (mixerViewVisible)
     {
         auto mixerArea = lowerWorkspace.reduced(0, 0);
+        auto masterArea = mixerArea.removeFromRight(86);
+        mixerArea.removeFromRight(8);
 
         instrumentView.setVisible(false);
         instrumentCodeEditor.setVisible(false);
@@ -1112,6 +1191,9 @@ void MainComponent::resized()
         mixerViewport.setBounds(mixerArea);
         mixerViewport.setVisible(true);
         mixerViewport.toFront(false);
+        mixerMasterContent.setBounds(masterArea);
+        mixerMasterContent.setVisible(true);
+        mixerMasterContent.toFront(false);
         refreshMixerView();
 
         gridEditor.setVisible(false);
@@ -1185,7 +1267,18 @@ void MainComponent::resized()
         topControls.removeFromLeft(8);
         compileInstrumentButton.setBounds(topControls.removeFromLeft(110));
 
-        area.removeFromTop(18);
+        area.removeFromTop(12);
+        auto auditionControls = area.removeFromTop(32);
+        instrumentAuditionLabel.setBounds(auditionControls.removeFromLeft(84));
+        auditionPitchEditor.setBounds(auditionControls.removeFromLeft(74));
+        auditionControls.removeFromLeft(8);
+        auditionVelocityEditor.setBounds(auditionControls.removeFromLeft(74));
+        auditionControls.removeFromLeft(8);
+        auditionDurationEditor.setBounds(auditionControls.removeFromLeft(74));
+        auditionControls.removeFromLeft(10);
+        auditionButton.setBounds(auditionControls.removeFromLeft(104));
+
+        area.removeFromTop(16);
         auto columns = area;
         auto mapArea = columns.removeFromLeft(360);
         columns.removeFromLeft(22);
@@ -1219,6 +1312,157 @@ void MainComponent::resized()
         instrumentCodeLabel.setBounds(codeHeader);
         codeArea.removeFromTop(8);
         instrumentCodeEditor.setBounds(codeArea);
+    }
+    else if (transitionsViewVisible)
+    {
+        auto editorArea = lowerWorkspace.reduced(0, 0);
+
+        instrumentView.setVisible(false);
+        instrumentCodeEditor.setVisible(false);
+        stateGraph.setVisible(false);
+        mixerViewport.setVisible(false);
+        arrangementViewport.setVisible(false);
+        gridEditor.setVisible(false);
+        laneCodeBackdrop.setVisible(false);
+        laneScCodeEditor.setVisible(false);
+        for (auto& button : gridTabButtons)
+            button.setVisible(false);
+
+        transitionCodeLabel.setVisible(true);
+        transitionCodeBackdrop.setVisible(false);
+        transitionCodeEditor.setVisible(true);
+        transitionCodeLabel.setBounds(editorArea.removeFromTop(24));
+        editorArea.removeFromTop(8);
+        transitionCodeEditor.setBounds(editorArea.reduced(2, 0));
+        transitionCodeEditor.toFront(false);
+    }
+    else if (eventMonitorViewVisible)
+    {
+        auto monitorArea = lowerWorkspace.reduced(24);
+
+        instrumentView.setVisible(false);
+        instrumentCodeEditor.setVisible(false);
+        stateGraph.setVisible(false);
+        transitionCodeLabel.setVisible(false);
+        transitionCodeBackdrop.setVisible(false);
+        transitionCodeEditor.setVisible(false);
+        mixerViewport.setVisible(false);
+        arrangementViewport.setVisible(false);
+        gridEditor.setVisible(false);
+        laneCodeBackdrop.setVisible(false);
+        laneScCodeEditor.setVisible(false);
+        for (auto& button : gridTabButtons)
+            button.setVisible(false);
+
+        eventMonitorLabel.setVisible(true);
+        eventMonitor.setVisible(true);
+        eventMonitorLabel.setBounds(monitorArea.removeFromTop(28));
+        monitorArea.removeFromTop(10);
+        eventMonitor.setBounds(monitorArea);
+        eventMonitor.toFront(false);
+    }
+    else if (stateInspectorViewVisible)
+    {
+        auto inspectorArea = lowerWorkspace.reduced(0, 0);
+
+        instrumentView.setVisible(false);
+        instrumentCodeEditor.setVisible(false);
+        stateGraph.setVisible(false);
+        transitionCodeLabel.setVisible(false);
+        transitionCodeBackdrop.setVisible(false);
+        transitionCodeEditor.setVisible(false);
+        mixerViewport.setVisible(false);
+        arrangementViewport.setVisible(false);
+        gridEditor.setVisible(false);
+        laneCodeBackdrop.setVisible(false);
+        laneScCodeEditor.setVisible(false);
+        eventMonitorLabel.setVisible(false);
+        eventMonitor.setVisible(false);
+        for (auto& button : gridTabButtons)
+            button.setVisible(false);
+
+        stateInspectorView.setBounds(inspectorArea);
+        stateInspectorView.setVisible(true);
+        stateInspectorView.toFront(false);
+        refreshStateInspectorView();
+
+        auto area = stateInspectorView.getLocalBounds().reduced(24);
+        auto titleRow = area.removeFromTop(30);
+        stateInspectorMetaLabel.setBounds(titleRow.removeFromRight(360));
+        stateInspectorTitleLabel.setBounds(titleRow);
+        area.removeFromTop(12);
+
+        auto stateRow = area.removeFromTop(62);
+        auto stateLabels = stateRow.removeFromTop(18);
+        auto stateControls = stateRow.removeFromTop(36);
+        stateInspectorNameLabel.setBounds(stateLabels.removeFromLeft(260));
+        stateLabels.removeFromLeft(10);
+        stateInspectorBpmLabel.setBounds(stateLabels.removeFromLeft(96));
+        stateLabels.removeFromLeft(10);
+        stateInspectorSignatureLabel.setBounds(stateLabels.removeFromLeft(138));
+        stateLabels.removeFromLeft(10);
+        stateInspectorAdvanceLabel.setBounds(stateLabels.removeFromLeft(210));
+
+        stateInspectorNameEditor.setBounds(stateControls.removeFromLeft(260));
+        stateControls.removeFromLeft(10);
+        stateInspectorBpmEditor.setBounds(stateControls.removeFromLeft(96));
+        stateControls.removeFromLeft(10);
+        stateInspectorTimeSignatureNumeratorEditor.setBounds(stateControls.removeFromLeft(62));
+        stateControls.removeFromLeft(6);
+        stateInspectorTimeSignatureDenominatorEditor.setBounds(stateControls.removeFromLeft(62));
+        stateControls.removeFromLeft(10);
+        stateInspectorAdvanceModeButton.setBounds(stateControls.removeFromLeft(122));
+        stateControls.removeFromLeft(8);
+        stateInspectorAdvanceIntervalEditor.setBounds(stateControls.removeFromLeft(80));
+
+        area.removeFromTop(10);
+        stateInspectorTransitionLabel.setBounds(area.removeFromTop(20));
+        area.removeFromTop(6);
+        stateInspectorTransitionEditor.setBounds(area.removeFromTop(112));
+
+        area.removeFromTop(16);
+        stateInspectorLaneHeaderLabel.setBounds(area.removeFromTop(20));
+        area.removeFromTop(8);
+
+        const auto rowHeight = 34;
+        const auto rowGap = 7;
+        for (int index = 0; index < static_cast<int>(stateInspectorLaneLabels.size()); ++index)
+        {
+            auto row = area.removeFromTop(rowHeight);
+            const auto visible = row.getHeight() > 0 && stateInspectorLaneLabels[static_cast<std::size_t>(index)].isVisible();
+            if (! visible)
+            {
+                stateInspectorLaneLabels[static_cast<std::size_t>(index)].setBounds({});
+                stateInspectorLaneSizeLabels[static_cast<std::size_t>(index)].setBounds({});
+                stateInspectorLaneKindButtons[static_cast<std::size_t>(index)].setBounds({});
+                stateInspectorLaneRatioEditors[static_cast<std::size_t>(index)].setBounds({});
+                stateInspectorLanePhaseButtons[static_cast<std::size_t>(index)].setBounds({});
+                stateInspectorLanePhaseEditors[static_cast<std::size_t>(index)].setBounds({});
+                stateInspectorLaneLevelEditors[static_cast<std::size_t>(index)].setBounds({});
+                stateInspectorLanePanEditors[static_cast<std::size_t>(index)].setBounds({});
+                stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(index)].setBounds({});
+                continue;
+            }
+
+            stateInspectorLaneLabels[static_cast<std::size_t>(index)].setBounds(row.removeFromLeft(72));
+            row.removeFromLeft(8);
+            stateInspectorLaneKindButtons[static_cast<std::size_t>(index)].setBounds(row.removeFromLeft(72));
+            row.removeFromLeft(8);
+            stateInspectorLaneSizeLabels[static_cast<std::size_t>(index)].setBounds(row.removeFromLeft(86));
+            row.removeFromLeft(8);
+            stateInspectorLaneRatioEditors[static_cast<std::size_t>(index)].setBounds(row.removeFromLeft(72));
+            row.removeFromLeft(8);
+            stateInspectorLanePhaseButtons[static_cast<std::size_t>(index)].setBounds(row.removeFromLeft(72));
+            row.removeFromLeft(8);
+            stateInspectorLanePhaseEditors[static_cast<std::size_t>(index)].setBounds(row.removeFromLeft(72));
+            row.removeFromLeft(8);
+            stateInspectorLaneLevelEditors[static_cast<std::size_t>(index)].setBounds(row.removeFromLeft(72));
+            row.removeFromLeft(8);
+            stateInspectorLanePanEditors[static_cast<std::size_t>(index)].setBounds(row.removeFromLeft(72));
+            row.removeFromLeft(8);
+            stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(index)].setBounds(row.removeFromLeft(juce::jmin(260, row.getWidth())));
+            area.removeFromTop(rowGap);
+        }
     }
     else
     {
@@ -1327,17 +1571,26 @@ void MainComponent::resized()
                              static_cast<juce::Component*>(&oscHostEditor),
                              static_cast<juce::Component*>(&oscPortEditor),
                              static_cast<juce::Component*>(&oscConnectButton),
-                             static_cast<juce::Component*>(&oscDebugToggle),
-                             static_cast<juce::Component*>(&eventMonitorLabel),
-                             static_cast<juce::Component*>(&eventMonitor) })
+                             static_cast<juce::Component*>(&oscDebugToggle) })
     {
         component->setBounds({});
         component->setVisible(false);
     }
 
-    transitionArea = transitionArea.reduced(12, 2);
-    transitionCodeLabel.setBounds(transitionArea.removeFromTop(24));
-    transitionCodeEditor.setBounds(transitionArea.reduced(2, 8));
+    if (! eventMonitorViewVisible)
+    {
+        eventMonitorLabel.setBounds({});
+        eventMonitorLabel.setVisible(false);
+        eventMonitor.setBounds({});
+        eventMonitor.setVisible(false);
+    }
+
+    if (! transitionsViewVisible)
+    {
+        transitionArea = transitionArea.reduced(12, 2);
+        transitionCodeLabel.setBounds(transitionArea.removeFromTop(24));
+        transitionCodeEditor.setBounds(transitionArea.reduced(2, 8));
+    }
 }
 
 void MainComponent::mouseMove(const juce::MouseEvent& event)
@@ -1517,7 +1770,7 @@ void MainComponent::timerCallback()
         timerDeltaMs = nowMs - lastTimerCallbackMs;
     lastTimerCallbackMs = nowMs;
 
-    if (eventMonitorDirty)
+    if (eventMonitorDirty.load(std::memory_order_acquire) && eventMonitorViewVisible)
         refreshEventMonitor();
 
     if (pendingLaneCodeCompile && nowMs - lastLaneCodeEditMs > 700.0)
@@ -1540,9 +1793,10 @@ void MainComponent::timerCallback()
         auto& display = mixerMeterDisplay[static_cast<std::size_t>(index)];
         const auto target = juce::jlimit(0.0f, 1.0f, raw);
         const auto deltaSeconds = static_cast<float>(juce::jlimit(1.0, 60.0, timerDeltaMs) / 1000.0);
-        const auto release = 1.0f - std::exp(-deltaSeconds / 0.105f);
-        const auto next = target >= display ? target : display + (target - display) * release;
-        const auto smoothed = target >= display ? next : juce::jmax(0.0f, next - 0.0012f);
+        const auto attack = 1.0f - std::exp(-deltaSeconds / 0.030f);
+        const auto release = 1.0f - std::exp(-deltaSeconds / 0.420f);
+        const auto coefficient = target >= display ? attack : release;
+        const auto smoothed = display + (target - display) * coefficient;
 
         if (std::abs(smoothed - display) > 0.0005f || raw > 0.0005f)
             metersChanged = true;
@@ -2176,6 +2430,8 @@ juce::var MainComponent::serialiseComposition() const
             laneObject->setProperty("phaseOffsetDegrees", lane.phaseOffsetDegrees);
             laneObject->setProperty("mixerLevel", lane.mixerLevel);
             laneObject->setProperty("mixerPan", lane.mixerPan);
+            laneObject->setProperty("mixerMuted", lane.mixerMuted);
+            laneObject->setProperty("mixerSoloed", lane.mixerSoloed);
             laneObject->setProperty("scCode", lane.scCode);
             laneObject->setProperty("scSynthName", lane.scSynthName);
             laneObject->setProperty("gridWidth", lane.snapshot.width);
@@ -2328,6 +2584,8 @@ juce::Result MainComponent::restoreComposition(const juce::var& document)
                 lane.phaseOffsetDegrees = juce::jlimit(0.0, 360.0, static_cast<double>(laneObject->getProperty("phaseOffsetDegrees")));
                 lane.mixerLevel = juce::jlimit(0.0f, 1.25f, static_cast<float>(static_cast<double>(laneObject->getProperty("mixerLevel"))));
                 lane.mixerPan = juce::jlimit(-1.0f, 1.0f, static_cast<float>(static_cast<double>(laneObject->getProperty("mixerPan"))));
+                lane.mixerMuted = static_cast<bool>(laneObject->getProperty("mixerMuted"));
+                lane.mixerSoloed = static_cast<bool>(laneObject->getProperty("mixerSoloed"));
                 lane.scCode = laneObject->getProperty("scCode").toString();
                 lane.scSynthName = laneObject->getProperty("scSynthName").toString();
                 lane.scCodeDirty = lane.kind == CompositionGrid::Kind::supercollider;
@@ -2761,34 +3019,514 @@ void MainComponent::configureEventMonitor()
     eventMonitorLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold));
     eventMonitorLabel.setJustificationType(juce::Justification::centredLeft);
     eventMonitorLabel.setColour(juce::Label::textColourId, lewittInk());
-
-    eventMonitor.setReadOnly(true);
-    eventMonitor.setMultiLine(true);
-    eventMonitor.setScrollbarsShown(false);
-    eventMonitor.setCaretVisible(false);
-    eventMonitor.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
-    eventMonitor.setColour(juce::TextEditor::backgroundColourId, juce::Colour::fromRGB(24, 25, 26));
-    eventMonitor.setColour(juce::TextEditor::outlineColourId, lewittLine().withAlpha(0.58f));
-    eventMonitor.setColour(juce::TextEditor::focusedOutlineColourId, lewittBlue());
-    eventMonitor.setColour(juce::TextEditor::textColourId, lewittInk());
-    eventMonitor.setColour(juce::TextEditor::highlightColourId, lewittBlue().withAlpha(0.35f));
+    eventMonitor.setInterceptsMouseClicks(true, true);
 }
 
 void MainComponent::appendEventMonitorLine(const LogEvent& event)
 {
-    eventMonitorLines.add("[" + juce::String(event.fields.tick).paddedLeft('0', 4) + "] " + event.message);
+    const auto& fields = event.fields;
+    juce::String line = juce::String(fields.tick).paddedLeft('0', 6)
+        + "  @" + juce::String(fields.sourceCell.column + 1).paddedLeft('0', 2)
+        + "," + juce::String(fields.sourceCell.row + 1).paddedLeft('0', 2)
+        + "  " + event.message;
 
-    while (eventMonitorLines.size() > 80)
-        eventMonitorLines.remove(0);
+    if (fields.instrumentName.isNotEmpty() && ! line.contains(" inst "))
+        line += "  inst " + fields.instrumentName;
 
-    eventMonitorDirty = true;
+    if (fields.pitch >= 0 && ! line.contains(" pitch "))
+        line += "  pitch " + juce::String(fields.pitch);
+
+    if (fields.velocity > 0.0f && ! line.contains(" vel "))
+        line += "  vel " + juce::String(fields.velocity, 2);
+
+    if (fields.durationTicks > 0 && ! line.contains(" dur "))
+        line += "  dur " + juce::String(fields.durationTicks);
+
+    if (fields.targetAddress.has_value() && fields.targetAddress->isNotEmpty() && ! line.contains(" -> "))
+        line += "  -> " + *fields.targetAddress;
+
+    {
+        const std::lock_guard lock(eventMonitorMutex);
+        eventMonitorLines.add(line);
+
+        while (eventMonitorLines.size() > 512)
+            eventMonitorLines.remove(0);
+    }
+
+    eventMonitorDirty.store(true, std::memory_order_release);
 }
 
 void MainComponent::refreshEventMonitor()
 {
-    eventMonitorDirty = false;
-    eventMonitor.setText(eventMonitorLines.joinIntoString("\n"), juce::dontSendNotification);
-    eventMonitor.moveCaretToEnd(false);
+    eventMonitorDirty.store(false, std::memory_order_release);
+    juce::StringArray lines;
+    {
+        const std::lock_guard lock(eventMonitorMutex);
+        lines = eventMonitorLines;
+    }
+
+    eventMonitorLabel.setText("EVENT MONITOR    "
+                                  + juce::String(lines.size())
+                                  + " rows    state "
+                                  + juce::String(activeStateIndex + 1).paddedLeft('0', 2)
+                                  + "    lane "
+                                  + juce::String(activeGridSlot + 1).paddedLeft('0', 2),
+                              juce::dontSendNotification);
+    eventMonitor.setLines(lines);
+}
+
+void MainComponent::configureStateInspectorView()
+{
+    addAndMakeVisible(stateInspectorView);
+    stateInspectorView.setVisible(false);
+    stateInspectorView.setOpaque(false);
+
+    for (auto* component : { static_cast<juce::Component*>(&stateInspectorTitleLabel),
+                             static_cast<juce::Component*>(&stateInspectorMetaLabel),
+                             static_cast<juce::Component*>(&stateInspectorNameLabel),
+                             static_cast<juce::Component*>(&stateInspectorBpmLabel),
+                             static_cast<juce::Component*>(&stateInspectorSignatureLabel),
+                             static_cast<juce::Component*>(&stateInspectorAdvanceLabel),
+                             static_cast<juce::Component*>(&stateInspectorTransitionLabel),
+                             static_cast<juce::Component*>(&stateInspectorLaneHeaderLabel),
+                             static_cast<juce::Component*>(&stateInspectorNameEditor),
+                             static_cast<juce::Component*>(&stateInspectorBpmEditor),
+                             static_cast<juce::Component*>(&stateInspectorTimeSignatureNumeratorEditor),
+                             static_cast<juce::Component*>(&stateInspectorTimeSignatureDenominatorEditor),
+                             static_cast<juce::Component*>(&stateInspectorAdvanceModeButton),
+                             static_cast<juce::Component*>(&stateInspectorAdvanceIntervalEditor),
+                             static_cast<juce::Component*>(&stateInspectorTransitionEditor) })
+        stateInspectorView.addAndMakeVisible(component);
+
+    for (int index = 0; index < static_cast<int>(stateInspectorLaneLabels.size()); ++index)
+    {
+        stateInspectorView.addAndMakeVisible(stateInspectorLaneLabels[static_cast<std::size_t>(index)]);
+        stateInspectorView.addAndMakeVisible(stateInspectorLaneSizeLabels[static_cast<std::size_t>(index)]);
+        stateInspectorView.addAndMakeVisible(stateInspectorLaneKindButtons[static_cast<std::size_t>(index)]);
+        stateInspectorView.addAndMakeVisible(stateInspectorLaneRatioEditors[static_cast<std::size_t>(index)]);
+        stateInspectorView.addAndMakeVisible(stateInspectorLanePhaseButtons[static_cast<std::size_t>(index)]);
+        stateInspectorView.addAndMakeVisible(stateInspectorLanePhaseEditors[static_cast<std::size_t>(index)]);
+        stateInspectorView.addAndMakeVisible(stateInspectorLaneLevelEditors[static_cast<std::size_t>(index)]);
+        stateInspectorView.addAndMakeVisible(stateInspectorLanePanEditors[static_cast<std::size_t>(index)]);
+        stateInspectorView.addAndMakeVisible(stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(index)]);
+
+        stateInspectorLaneKindButtons[static_cast<std::size_t>(index)].onClick = [this, index] { toggleStateInspectorLaneKind(index); };
+        stateInspectorLanePhaseButtons[static_cast<std::size_t>(index)].onClick = [this, index] { toggleStateInspectorLanePhase(index); };
+
+        for (auto* editor : { &stateInspectorLaneRatioEditors[static_cast<std::size_t>(index)],
+                              &stateInspectorLanePhaseEditors[static_cast<std::size_t>(index)],
+                              &stateInspectorLaneLevelEditors[static_cast<std::size_t>(index)],
+                              &stateInspectorLanePanEditors[static_cast<std::size_t>(index)],
+                              &stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(index)] })
+        {
+            editor->onReturnKey = [this, index] { applyStateInspectorLaneEditor(index); };
+            editor->onFocusLost = [this, index] { applyStateInspectorLaneEditor(index); };
+        }
+    }
+
+    stateInspectorTitleLabel.setText("State Inspector", juce::dontSendNotification);
+    stateInspectorNameLabel.setText("Name", juce::dontSendNotification);
+    stateInspectorBpmLabel.setText("BPM", juce::dontSendNotification);
+    stateInspectorSignatureLabel.setText("Signature", juce::dontSendNotification);
+    stateInspectorAdvanceLabel.setText("Advance", juce::dontSendNotification);
+    stateInspectorTransitionLabel.setText("Transition Rule", juce::dontSendNotification);
+    stateInspectorLaneHeaderLabel.setText("LANE      KIND     SIZE       RATIO    PHASE    DEG      LEVEL    PAN      INSTRUMENT", juce::dontSendNotification);
+
+    stateInspectorTransitionEditor.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
+    stateInspectorTransitionEditor.setTabSize(4, true);
+    stateInspectorTransitionEditor.setScrollbarThickness(8);
+
+    stateInspectorBpmEditor.setInputRestrictions(6, "0123456789.");
+    stateInspectorTimeSignatureNumeratorEditor.setInputRestrictions(2, "0123456789");
+    stateInspectorTimeSignatureDenominatorEditor.setInputRestrictions(2, "0123456789");
+    stateInspectorAdvanceIntervalEditor.setInputRestrictions(3, "0123456789");
+
+    stateInspectorNameEditor.onReturnKey = [this] { applyStateInspectorEditors(); };
+    stateInspectorNameEditor.onFocusLost = [this] { applyStateInspectorEditors(); };
+    stateInspectorBpmEditor.onReturnKey = [this] { applyStateInspectorEditors(); };
+    stateInspectorBpmEditor.onFocusLost = [this] { applyStateInspectorEditors(); };
+    stateInspectorTimeSignatureNumeratorEditor.onReturnKey = [this] { applyStateInspectorEditors(); };
+    stateInspectorTimeSignatureNumeratorEditor.onFocusLost = [this] { applyStateInspectorEditors(); };
+    stateInspectorTimeSignatureDenominatorEditor.onReturnKey = [this] { applyStateInspectorEditors(); };
+    stateInspectorTimeSignatureDenominatorEditor.onFocusLost = [this] { applyStateInspectorEditors(); };
+    stateInspectorAdvanceIntervalEditor.onReturnKey = [this] { applyStateInspectorEditors(); };
+    stateInspectorAdvanceIntervalEditor.onFocusLost = [this] { applyStateInspectorEditors(); };
+    stateInspectorAdvanceModeButton.onClick = [this] { cycleStateInspectorAdvanceMode(); };
+
+    styleStateInspectorView();
+    refreshStateInspectorView();
+}
+
+void MainComponent::styleStateInspectorView()
+{
+    const auto background = juce::Colour::fromRGB(48, 49, 50);
+    const auto field = juce::Colour::fromRGB(24, 25, 26);
+    const auto text = lewittInk();
+    const auto outline = lewittLine().withAlpha(0.62f);
+
+    for (auto* label : { &stateInspectorTitleLabel, &stateInspectorMetaLabel, &stateInspectorNameLabel,
+                         &stateInspectorBpmLabel, &stateInspectorSignatureLabel, &stateInspectorAdvanceLabel,
+                         &stateInspectorTransitionLabel, &stateInspectorLaneHeaderLabel })
+    {
+        label->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(),
+                                          label == &stateInspectorTitleLabel ? 20.0f : 12.0f,
+                                          juce::Font::bold));
+        label->setColour(juce::Label::textColourId, text);
+    }
+
+    stateInspectorMetaLabel.setJustificationType(juce::Justification::centredRight);
+    stateInspectorMetaLabel.setColour(juce::Label::textColourId, text.withAlpha(0.68f));
+
+    for (auto* button : { &stateInspectorAdvanceModeButton })
+    {
+        button->setColour(juce::TextButton::buttonColourId, background);
+        button->setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
+        button->setColour(juce::TextButton::textColourOffId, text);
+        button->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        button->setColour(juce::ComboBox::outlineColourId, outline);
+    }
+
+    for (auto& button : stateInspectorLaneKindButtons)
+    {
+        button.setColour(juce::TextButton::buttonColourId, background);
+        button.setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
+        button.setColour(juce::TextButton::textColourOffId, text);
+        button.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        button.setColour(juce::ComboBox::outlineColourId, outline);
+    }
+
+    for (auto& button : stateInspectorLanePhaseButtons)
+    {
+        button.setColour(juce::TextButton::buttonColourId, background);
+        button.setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
+        button.setColour(juce::TextButton::textColourOffId, text);
+        button.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        button.setColour(juce::ComboBox::outlineColourId, outline);
+    }
+
+    auto styleEditor = [&](juce::TextEditor& editor, const bool centred)
+    {
+        editor.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
+        editor.setJustification(centred ? juce::Justification::centred : juce::Justification::centredLeft);
+        editor.setColour(juce::TextEditor::backgroundColourId, field);
+        editor.setColour(juce::TextEditor::outlineColourId, outline);
+        editor.setColour(juce::TextEditor::focusedOutlineColourId, lewittBlue());
+        editor.setColour(juce::TextEditor::highlightColourId, lewittBlue().withAlpha(0.35f));
+        forceBlackEditorText(editor);
+    };
+
+    styleEditor(stateInspectorNameEditor, false);
+    styleEditor(stateInspectorBpmEditor, true);
+    styleEditor(stateInspectorTimeSignatureNumeratorEditor, true);
+    styleEditor(stateInspectorTimeSignatureDenominatorEditor, true);
+    styleEditor(stateInspectorAdvanceIntervalEditor, true);
+
+    stateInspectorTransitionEditor.setColour(juce::CodeEditorComponent::backgroundColourId, field);
+    stateInspectorTransitionEditor.setColour(juce::CodeEditorComponent::defaultTextColourId, text);
+    stateInspectorTransitionEditor.setColour(juce::CodeEditorComponent::highlightColourId, lewittBlue().withAlpha(0.34f));
+    stateInspectorTransitionEditor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, juce::Colour::fromRGB(31, 32, 33));
+    stateInspectorTransitionEditor.setColour(juce::CodeEditorComponent::lineNumberTextId, text.withAlpha(0.52f));
+    stateInspectorTransitionEditor.setColour(juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB(35, 36, 37));
+    stateInspectorTransitionEditor.setColour(juce::ScrollBar::thumbColourId, lewittBlue());
+    stateInspectorTransitionEditor.setColourScheme(scCodeTokeniser.getDefaultColourScheme());
+
+    for (auto& label : stateInspectorLaneLabels)
+    {
+        label.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold));
+        label.setColour(juce::Label::textColourId, text.withAlpha(0.82f));
+    }
+
+    for (auto& label : stateInspectorLaneSizeLabels)
+    {
+        label.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
+        label.setJustificationType(juce::Justification::centred);
+        label.setColour(juce::Label::textColourId, text.withAlpha(0.72f));
+    }
+
+    for (int index = 0; index < static_cast<int>(stateInspectorLaneLabels.size()); ++index)
+    {
+        styleEditor(stateInspectorLaneRatioEditors[static_cast<std::size_t>(index)], true);
+        styleEditor(stateInspectorLanePhaseEditors[static_cast<std::size_t>(index)], true);
+        styleEditor(stateInspectorLaneLevelEditors[static_cast<std::size_t>(index)], true);
+        styleEditor(stateInspectorLanePanEditors[static_cast<std::size_t>(index)], true);
+        styleEditor(stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(index)], false);
+    }
+}
+
+void MainComponent::refreshStateInspectorView()
+{
+    updatingStateInspectorView = true;
+
+    CompositionState state;
+    int stateIndex = 0;
+    int stateCount = 0;
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+        stateCount = static_cast<int>(compositionStates.size());
+
+        if (stateCount > 0)
+        {
+            activeStateIndex = juce::jlimit(0, stateCount - 1, activeStateIndex);
+            stateIndex = activeStateIndex;
+            state = compositionStates[static_cast<std::size_t>(stateIndex)];
+        }
+    }
+
+    const auto hasState = stateCount > 0;
+    stateInspectorView.setEnabled(hasState);
+
+    if (! hasState)
+    {
+        stateInspectorMetaLabel.setText("no state", juce::dontSendNotification);
+        stateInspectorNameEditor.clear();
+        stateInspectorBpmEditor.clear();
+        for (int index = 0; index < static_cast<int>(stateInspectorLaneLabels.size()); ++index)
+        {
+            stateInspectorLaneLabels[static_cast<std::size_t>(index)].setVisible(false);
+            stateInspectorLaneSizeLabels[static_cast<std::size_t>(index)].setVisible(false);
+            stateInspectorLaneKindButtons[static_cast<std::size_t>(index)].setVisible(false);
+            stateInspectorLaneRatioEditors[static_cast<std::size_t>(index)].setVisible(false);
+            stateInspectorLanePhaseButtons[static_cast<std::size_t>(index)].setVisible(false);
+            stateInspectorLanePhaseEditors[static_cast<std::size_t>(index)].setVisible(false);
+            stateInspectorLaneLevelEditors[static_cast<std::size_t>(index)].setVisible(false);
+            stateInspectorLanePanEditors[static_cast<std::size_t>(index)].setVisible(false);
+            stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(index)].setVisible(false);
+        }
+        updatingStateInspectorView = false;
+        return;
+    }
+
+    stateInspectorMetaLabel.setText("state "
+                                        + juce::String(stateIndex + 1).paddedLeft('0', 2)
+                                        + "/"
+                                        + juce::String(stateCount).paddedLeft('0', 2)
+                                        + "    lanes "
+                                        + juce::String(static_cast<int>(state.grids.size()))
+                                        + "    "
+                                        + juce::String(state.timeSignatureNumerator)
+                                        + "/"
+                                        + juce::String(state.timeSignatureDenominator),
+                                    juce::dontSendNotification);
+    stateInspectorNameEditor.setText(state.name, juce::dontSendNotification);
+    stateInspectorBpmEditor.setText(juce::String(state.bpm, 1), juce::dontSendNotification);
+    stateInspectorTimeSignatureNumeratorEditor.setText(juce::String(state.timeSignatureNumerator), juce::dontSendNotification);
+    stateInspectorTimeSignatureDenominatorEditor.setText(juce::String(state.timeSignatureDenominator), juce::dontSendNotification);
+    stateInspectorAdvanceModeButton.setButtonText(getStateAdvanceModeText(state.advanceMode));
+    stateInspectorAdvanceIntervalEditor.setText(juce::String(state.advanceInterval), juce::dontSendNotification);
+    stateInspectorAdvanceIntervalEditor.setEnabled(state.advanceMode != CompositionState::AdvanceMode::manual
+                                                   && state.advanceMode != CompositionState::AdvanceMode::trigger);
+
+    for (int index = 0; index < static_cast<int>(stateInspectorLaneLabels.size()); ++index)
+    {
+        const auto visible = index < static_cast<int>(state.grids.size());
+        stateInspectorLaneLabels[static_cast<std::size_t>(index)].setVisible(visible);
+        stateInspectorLaneSizeLabels[static_cast<std::size_t>(index)].setVisible(visible);
+        stateInspectorLaneKindButtons[static_cast<std::size_t>(index)].setVisible(visible);
+        stateInspectorLaneRatioEditors[static_cast<std::size_t>(index)].setVisible(visible);
+        stateInspectorLanePhaseButtons[static_cast<std::size_t>(index)].setVisible(visible);
+        stateInspectorLanePhaseEditors[static_cast<std::size_t>(index)].setVisible(visible);
+        stateInspectorLaneLevelEditors[static_cast<std::size_t>(index)].setVisible(visible);
+        stateInspectorLanePanEditors[static_cast<std::size_t>(index)].setVisible(visible);
+        stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(index)].setVisible(visible);
+
+        if (! visible)
+            continue;
+
+        const auto& lane = state.grids[static_cast<std::size_t>(index)];
+        const auto isGrid = lane.kind == CompositionGrid::Kind::grid;
+        stateInspectorLaneLabels[static_cast<std::size_t>(index)].setText("L "
+                                                                              + juce::String(index + 1).paddedLeft('0', 2),
+                                                                          juce::dontSendNotification);
+        stateInspectorLaneKindButtons[static_cast<std::size_t>(index)].setButtonText(isGrid ? "GRID" : "SC");
+        stateInspectorLaneSizeLabels[static_cast<std::size_t>(index)].setText(juce::String(lane.snapshot.width)
+                                                                                  + "x"
+                                                                                  + juce::String(lane.snapshot.height),
+                                                                              juce::dontSendNotification);
+        stateInspectorLaneRatioEditors[static_cast<std::size_t>(index)].setText(juce::String(lane.tempoRatio, 1),
+                                                                                juce::dontSendNotification);
+        stateInspectorLanePhaseButtons[static_cast<std::size_t>(index)].setButtonText(lane.phaseOffsetEnabled ? "OFFSET" : "SYNC");
+        stateInspectorLanePhaseButtons[static_cast<std::size_t>(index)].setToggleState(lane.phaseOffsetEnabled,
+                                                                                       juce::dontSendNotification);
+        stateInspectorLanePhaseEditors[static_cast<std::size_t>(index)].setText(juce::String(lane.phaseOffsetDegrees, 0),
+                                                                                juce::dontSendNotification);
+        stateInspectorLanePhaseEditors[static_cast<std::size_t>(index)].setEnabled(lane.phaseOffsetEnabled);
+        stateInspectorLaneLevelEditors[static_cast<std::size_t>(index)].setText(juce::String(lane.mixerLevel, 2),
+                                                                                juce::dontSendNotification);
+        stateInspectorLanePanEditors[static_cast<std::size_t>(index)].setText(juce::String(lane.mixerPan, 2),
+                                                                              juce::dontSendNotification);
+
+        const auto synthName = lane.scSynthName.isNotEmpty()
+                                   ? lane.scSynthName
+                                   : isGrid ? juce::String("grid events")
+                                            : getSynthDefNameFromSource(lane.scCode.isEmpty()
+                                                                            ? createDefaultScLaneCode(stateIndex + 1, index + 1)
+                                                                            : lane.scCode,
+                                                                        stateIndex + 1,
+                                                                        index + 1);
+        stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(index)].setText(synthName, juce::dontSendNotification);
+        stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(index)].setReadOnly(isGrid);
+        stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(index)].setEnabled(! isGrid);
+    }
+
+    updatingStateInspectorView = false;
+}
+
+void MainComponent::applyStateInspectorEditors()
+{
+    if (updatingStateInspectorView)
+        return;
+
+    storeActiveGridSlot();
+
+    const auto name = stateInspectorNameEditor.getText().trim();
+    const auto bpm = juce::jlimit(20.0, 360.0, stateInspectorBpmEditor.getText().getDoubleValue());
+    const auto numerator = juce::jlimit(1, 32, stateInspectorTimeSignatureNumeratorEditor.getText().getIntValue());
+    const auto denominator = juce::jlimit(1, 32, stateInspectorTimeSignatureDenominatorEditor.getText().getIntValue());
+    const auto interval = juce::jlimit(1, 999, stateInspectorAdvanceIntervalEditor.getText().getIntValue());
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+        if (compositionStates.empty())
+            return;
+
+        activeStateIndex = juce::jlimit(0, static_cast<int>(compositionStates.size()) - 1, activeStateIndex);
+        auto& state = compositionStates[static_cast<std::size_t>(activeStateIndex)];
+        state.name = name.isNotEmpty() ? name : "State " + juce::String(activeStateIndex + 1).paddedLeft('0', 2);
+        state.bpm = bpm;
+        state.timeSignatureNumerator = numerator;
+        state.timeSignatureDenominator = denominator;
+        state.advanceInterval = interval;
+    }
+
+    transportEngine.setBpm(bpm);
+    updateTransportControls();
+    updateStateAdvanceControls();
+    refreshStateGraph();
+    refreshArrangementView();
+    refreshStateInspectorView();
+    repaint();
+}
+
+void MainComponent::cycleStateInspectorAdvanceMode()
+{
+    toggleSelectedStateAdvanceMode();
+    refreshStateInspectorView();
+}
+
+void MainComponent::applyStateInspectorLaneEditor(const int laneIndex)
+{
+    if (updatingStateInspectorView)
+        return;
+
+    storeActiveGridSlot();
+
+    const auto ratio = juce::jlimit(minimumGridTempoRatio,
+                                    maximumGridTempoRatio,
+                                    stateInspectorLaneRatioEditors[static_cast<std::size_t>(laneIndex)].getText().getDoubleValue());
+    const auto phase = juce::jlimit(0.0,
+                                    360.0,
+                                    stateInspectorLanePhaseEditors[static_cast<std::size_t>(laneIndex)].getText().getDoubleValue());
+    const auto level = juce::jlimit(0.0f,
+                                    1.25f,
+                                    static_cast<float>(stateInspectorLaneLevelEditors[static_cast<std::size_t>(laneIndex)].getText().getDoubleValue()));
+    const auto pan = juce::jlimit(-1.0f,
+                                  1.0f,
+                                  static_cast<float>(stateInspectorLanePanEditors[static_cast<std::size_t>(laneIndex)].getText().getDoubleValue()));
+    const auto synthName = stateInspectorLaneInstrumentEditors[static_cast<std::size_t>(laneIndex)].getText().trim();
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+        if (compositionStates.empty())
+            return;
+
+        activeStateIndex = juce::jlimit(0, static_cast<int>(compositionStates.size()) - 1, activeStateIndex);
+        auto& state = compositionStates[static_cast<std::size_t>(activeStateIndex)];
+        if (laneIndex < 0 || laneIndex >= static_cast<int>(state.grids.size()))
+            return;
+
+        auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+        lane.tempoRatio = ratio > 0.0 ? ratio : 1.0;
+        lane.phaseOffsetDegrees = phase;
+        lane.mixerLevel = level;
+        lane.mixerPan = pan;
+        if (lane.kind == CompositionGrid::Kind::supercollider && synthName.isNotEmpty())
+            lane.scSynthName = synthName;
+        lane.lastEvaluatedFrame = std::numeric_limits<std::uint64_t>::max();
+    }
+
+    updateGridSlotControls();
+    refreshMixerView();
+    refreshStateInspectorView();
+    repaint();
+}
+
+void MainComponent::toggleStateInspectorLaneKind(const int laneIndex)
+{
+    storeActiveGridSlot();
+    bool compileLane = false;
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+        if (compositionStates.empty())
+            return;
+
+        activeStateIndex = juce::jlimit(0, static_cast<int>(compositionStates.size()) - 1, activeStateIndex);
+        auto& state = compositionStates[static_cast<std::size_t>(activeStateIndex)];
+        if (laneIndex < 0 || laneIndex >= static_cast<int>(state.grids.size()))
+            return;
+
+        activeGridSlot = laneIndex;
+        auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+        if (lane.kind == CompositionGrid::Kind::grid)
+        {
+            lane.kind = CompositionGrid::Kind::supercollider;
+            if (lane.scCode.isEmpty())
+                lane.scCode = createDefaultScLaneCode(activeStateIndex + 1, laneIndex + 1);
+            lane.scCodeDirty = true;
+            compileLane = true;
+        }
+        else
+        {
+            lane.kind = CompositionGrid::Kind::grid;
+        }
+
+        lane.lastEvaluatedFrame = std::numeric_limits<std::uint64_t>::max();
+    }
+
+    updateGridSlotControls();
+    showActiveLane();
+    refreshStateInspectorView();
+    refreshMixerView();
+
+    if (compileLane)
+        compileSelectedScLane();
+
+    repaint();
+}
+
+void MainComponent::toggleStateInspectorLanePhase(const int laneIndex)
+{
+    storeActiveGridSlot();
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+        if (compositionStates.empty())
+            return;
+
+        activeStateIndex = juce::jlimit(0, static_cast<int>(compositionStates.size()) - 1, activeStateIndex);
+        auto& state = compositionStates[static_cast<std::size_t>(activeStateIndex)];
+        if (laneIndex < 0 || laneIndex >= static_cast<int>(state.grids.size()))
+            return;
+
+        auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+        lane.phaseOffsetEnabled = ! lane.phaseOffsetEnabled;
+        lane.lastEvaluatedFrame = std::numeric_limits<std::uint64_t>::max();
+    }
+
+    updateGridSlotControls();
+    refreshStateInspectorView();
+    repaint();
 }
 
 void MainComponent::configureTransport()
@@ -3208,6 +3946,19 @@ void MainComponent::configureMixerView()
     mixerViewport.setViewedComponent(&mixerContent, false);
     mixerViewport.setScrollBarsShown(false, true);
     mixerViewport.setVisible(false);
+    mixerContent.onStripClicked = [this](const int stateIndex, const int laneIndex)
+    {
+        selectMixerChannel(stateIndex, laneIndex);
+    };
+    mixerContent.onStateHeaderClicked = [this](const int stateIndex)
+    {
+        toggleMixerStateCollapsed(stateIndex);
+    };
+
+    addAndMakeVisible(mixerMasterContent);
+    mixerMasterContent.setVisible(false);
+    mixerMasterContent.onStripClicked = nullptr;
+    mixerMasterContent.onStateHeaderClicked = nullptr;
 
     mixerContent.addAndMakeVisible(mixerLabel);
     mixerLabel.setText("MIXER", juce::dontSendNotification);
@@ -3233,7 +3984,10 @@ void MainComponent::configureMixerView()
         level.setRange(0.0, 1.25, 0.01);
         level.setValue(1.0, juce::dontSendNotification);
 
-        pan.setSliderStyle(juce::Slider::LinearHorizontal);
+        pan.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        pan.setRotaryParameters(juce::MathConstants<float>::pi * 1.25f,
+                                juce::MathConstants<float>::pi * 2.75f,
+                                true);
         pan.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         pan.setRange(-1.0, 1.0, 0.01);
         pan.setValue(0.0, juce::dontSendNotification);
@@ -3289,6 +4043,8 @@ void MainComponent::styleMixerControls()
         level.setColour(juce::Slider::textBoxOutlineColourId, juce::Colour::fromRGB(120, 123, 126).withAlpha(0.72f));
         pan.setColour(juce::Slider::backgroundColourId, mixerLine.withAlpha(0.28f));
         pan.setColour(juce::Slider::trackColourId, mixerBlue);
+        pan.setColour(juce::Slider::rotarySliderOutlineColourId, mixerLine.withAlpha(0.65f));
+        pan.setColour(juce::Slider::rotarySliderFillColourId, mixerBlue);
         pan.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(220, 222, 224));
 
         for (auto* button : { &mute, &solo })
@@ -3324,11 +4080,15 @@ void MainComponent::refreshMixerView()
     {
         int state = -1;
         int lane = -1;
+        int x = 10;
+        int width = 50;
         juce::String label;
         juce::String output;
         juce::Colour colour;
         float level = 1.0f;
         float pan = 0.0f;
+        bool muted = false;
+        bool soloed = false;
         bool master = false;
     };
 
@@ -3338,12 +4098,44 @@ void MainComponent::refreshMixerView()
     };
 
     std::vector<Channel> channels;
+    std::vector<MixerContentComponent::Group> groups;
+    const auto stripWidth = 50;
+    const auto masterStripWidth = 74;
+    const auto groupGap = 10;
+    const auto collapsedGroupWidth = 94;
+    auto cursorX = 10;
+
     {
         const std::lock_guard lock(gridRuntimeMutex);
+        mixerStateCollapsed.resize(compositionStates.size(), false);
 
         for (int stateIndex = 0; stateIndex < static_cast<int>(compositionStates.size()); ++stateIndex)
         {
             const auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+            const auto laneCount = static_cast<int>(state.grids.size());
+            const auto stateColour = juce::Colour(channelColours[static_cast<std::size_t>(stateIndex) % channelColours.size()]);
+            const auto collapsed = stateIndex < static_cast<int>(mixerStateCollapsed.size())
+                                       && mixerStateCollapsed[static_cast<std::size_t>(stateIndex)];
+            const auto groupStartX = cursorX;
+            const auto groupWidth = collapsed
+                                        ? collapsedGroupWidth
+                                        : juce::jmax(collapsedGroupWidth, laneCount * stripWidth - 4);
+
+            groups.push_back({ stateIndex,
+                               "S"
+                                   + juce::String(stateIndex + 1).paddedLeft('0', 2)
+                                   + " "
+                                   + state.name,
+                               laneCount,
+                               stateColour,
+                               collapsed,
+                               { groupStartX, 10, groupWidth, 24 } });
+
+            if (collapsed)
+            {
+                cursorX += collapsedGroupWidth + groupGap;
+                continue;
+            }
 
             for (int laneIndex = 0; laneIndex < static_cast<int>(state.grids.size()); ++laneIndex)
             {
@@ -3351,25 +4143,30 @@ void MainComponent::refreshMixerView()
                 const auto colourIndex = static_cast<std::size_t>(stateIndex * 3 + laneIndex) % channelColours.size();
                 channels.push_back({ stateIndex,
                                      laneIndex,
-                                     "S" + juce::String(stateIndex + 1).paddedLeft('0', 2)
-                                         + " L" + juce::String(laneIndex + 1).paddedLeft('0', 2)
+                                     cursorX,
+                                     stripWidth,
+                                     "L" + juce::String(laneIndex + 1).paddedLeft('0', 2)
                                          + " " + (lane.kind == CompositionGrid::Kind::grid ? "G" : "SC"),
                                      lane.kind == CompositionGrid::Kind::grid ? "GRID" : "SYNTH",
                                      juce::Colour(channelColours[colourIndex]),
                                      lane.mixerLevel,
                                      lane.mixerPan,
+                                     lane.mixerMuted,
+                                     lane.mixerSoloed,
                                      false });
+                cursorX += stripWidth;
             }
+
+            cursorX += groupGap;
         }
     }
 
-    channels.push_back({ -1, -1, "MASTER", "ST OUT", juce::Colour::fromRGB(86, 64, 178), masterLevel, 0.0f, true });
-    masterMixerControlIndex = static_cast<int>(channels.size()) - 1;
+    const Channel masterChannel { -1, -1, 10, masterStripWidth, "MASTER", "ST OUT", juce::Colour::fromRGB(86, 64, 178), masterLevel, 0.0f, false, false, true };
+    masterMixerControlIndex = juce::jlimit(0, maximumMixerChannels - 1, static_cast<int>(channels.size()));
 
-    const auto channelCount = juce::jmax(1, static_cast<int>(channels.size()));
-    const auto stripWidth = 58;
+    const auto laneCount = static_cast<int>(channels.size());
     const auto contentHeight = juce::jmax(520, mixerViewport.getHeight());
-    const auto contentWidth = juce::jmax(20 + channelCount * stripWidth, mixerViewport.getWidth());
+    const auto contentWidth = juce::jmax(cursorX + 10, mixerViewport.getWidth());
     mixerContent.setBounds(0, 0, contentWidth, contentHeight);
     std::vector<MixerContentComponent::Strip> strips;
     strips.reserve(channels.size());
@@ -3381,14 +4178,43 @@ void MainComponent::refreshMixerView()
         const auto meter = meterIndex >= 0 && meterIndex < maximumMixerChannels
                                ? mixerMeterDisplay[static_cast<std::size_t>(meterIndex)]
                                : 0.0f;
-        strips.push_back({ channel.label, channel.output, channel.colour, channel.master, meter });
+        strips.push_back({ channel.state,
+                           channel.lane,
+                           channel.x,
+                           channel.width,
+                           channel.label,
+                           channel.output,
+                           channel.colour,
+                           false,
+                           channel.state == activeStateIndex && channel.lane == activeGridSlot,
+                           channel.muted,
+                           channel.soloed,
+                           meter });
     }
+    mixerContent.setGroups(std::move(groups));
     mixerContent.setStrips(std::move(strips), stripWidth, contentHeight);
+    mixerMasterContent.setGroups({});
+    mixerMasterContent.setStrips({ { -1,
+                                      -1,
+                                      10,
+                                      masterStripWidth,
+                                      masterChannel.label,
+                                      masterChannel.output,
+                                      masterChannel.colour,
+                                      true,
+                                      false,
+                                      false,
+                                      false,
+                                      mixerMeterDisplay[static_cast<std::size_t>(maximumMixerChannels - 1)] } },
+                                 masterStripWidth,
+                                 contentHeight);
     mixerLabel.setBounds({});
 
     for (int index = 0; index < maximumMixerChannels; ++index)
     {
-        const auto visible = index < static_cast<int>(channels.size());
+        const auto laneVisible = index < laneCount;
+        const auto masterVisible = index == masterMixerControlIndex;
+        const auto visible = laneVisible || masterVisible;
         auto& label = mixerChannelLabels[static_cast<std::size_t>(index)];
         auto& level = mixerLevelSliders[static_cast<std::size_t>(index)];
         auto& pan = mixerPanSliders[static_cast<std::size_t>(index)];
@@ -3396,28 +4222,56 @@ void MainComponent::refreshMixerView()
         auto& solo = mixerSoloButtons[static_cast<std::size_t>(index)];
 
         label.setVisible(false);
-        level.setVisible(visible);
-        pan.setVisible(visible && ! channels[static_cast<std::size_t>(index)].master);
-        mute.setVisible(false);
-        solo.setVisible(false);
 
         if (! visible)
+        {
+            level.setVisible(false);
+            pan.setVisible(false);
+            mute.setVisible(false);
+            solo.setVisible(false);
             continue;
+        }
 
-        const auto& channel = channels[static_cast<std::size_t>(index)];
-        const auto x = 10 + index * stripWidth;
-        const auto stripBounds = juce::Rectangle<int>(x, 10, stripWidth - 8, juce::jmax(380, contentHeight - 20));
-        const auto panY = stripBounds.getY() + 87;
-        const auto faderTop = stripBounds.getY() + (channel.master ? 88 : 124);
-        const auto faderBottom = stripBounds.getBottom() - 74;
-        pan.setBounds(stripBounds.getX() + 6, panY, stripBounds.getWidth() - 12, 18);
-        level.setBounds(stripBounds.getCentreX() - 14, faderTop, 28, juce::jmax(180, faderBottom - faderTop));
-        mute.setBounds({});
-        solo.setBounds({});
+        const auto& channel = laneVisible ? channels[static_cast<std::size_t>(index)] : masterChannel;
+        auto& parent = laneVisible ? static_cast<juce::Component&>(mixerContent)
+                                   : static_cast<juce::Component&>(mixerMasterContent);
+        parent.addChildComponent(label);
+        parent.addAndMakeVisible(level);
+        if (channel.master)
+        {
+            parent.addChildComponent(pan);
+            parent.addChildComponent(mute);
+            parent.addChildComponent(solo);
+        }
+        else
+        {
+            parent.addAndMakeVisible(pan);
+            parent.addAndMakeVisible(mute);
+            parent.addAndMakeVisible(solo);
+        }
+        level.setVisible(true);
+        pan.setVisible(! channel.master);
+        mute.setVisible(! channel.master);
+        solo.setVisible(! channel.master);
+
+        const auto stripY = channel.master ? 10 : 42;
+        const auto stripBounds = juce::Rectangle<int>(channel.x, stripY, channel.width - 6, juce::jmax(380, contentHeight - stripY - 10));
+        const auto knobSize = juce::jmin(34, juce::jmax(24, stripBounds.getWidth() - 8));
+        const auto panY = stripBounds.getY() + 71;
+        const auto faderTop = stripBounds.getY() + (channel.master ? 82 : 134);
+        const auto faderBottom = stripBounds.getBottom() - 64;
+        pan.setBounds(stripBounds.getCentreX() - knobSize / 2, panY, knobSize, knobSize);
+        level.setBounds(stripBounds.getCentreX() - 11, faderTop, 22, juce::jmax(220, faderBottom - faderTop));
+        mute.setBounds(channel.master ? juce::Rectangle<int>() : juce::Rectangle<int>(stripBounds.getX() + 4, stripBounds.getBottom() - 58, 18, 18));
+        solo.setBounds(channel.master ? juce::Rectangle<int>() : juce::Rectangle<int>(stripBounds.getRight() - 22, stripBounds.getBottom() - 58, 18, 18));
         level.setColour(juce::Slider::trackColourId, channel.colour.withAlpha(0.76f));
         pan.setColour(juce::Slider::trackColourId, channel.colour.withAlpha(0.78f));
+        level.setDoubleClickReturnValue(true, channel.master ? 0.9 : 1.0);
+        pan.setDoubleClickReturnValue(true, 0.0);
         level.setValue(channel.level, juce::dontSendNotification);
         pan.setValue(channel.pan, juce::dontSendNotification);
+        mute.setToggleState(channel.muted, juce::dontSendNotification);
+        solo.setToggleState(channel.soloed, juce::dontSendNotification);
 
         if (channel.master)
         {
@@ -3441,6 +4295,14 @@ void MainComponent::refreshMixerView()
             {
                 applyMixerControl(stateIndex, laneIndex, index, true);
             };
+            mute.onClick = [this, stateIndex = channel.state, laneIndex = channel.lane, index]
+            {
+                toggleMixerMute(stateIndex, laneIndex, index);
+            };
+            solo.onClick = [this, stateIndex = channel.state, laneIndex = channel.lane, index]
+            {
+                toggleMixerSolo(stateIndex, laneIndex, index);
+            };
         }
     }
 }
@@ -3454,6 +4316,10 @@ void MainComponent::refreshMixerMeters()
 
         for (int stateIndex = 0; stateIndex < static_cast<int>(compositionStates.size()); ++stateIndex)
         {
+            if (stateIndex < static_cast<int>(mixerStateCollapsed.size())
+                && mixerStateCollapsed[static_cast<std::size_t>(stateIndex)])
+                continue;
+
             const auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
 
             for (int laneIndex = 0; laneIndex < static_cast<int>(state.grids.size()); ++laneIndex)
@@ -3467,7 +4333,151 @@ void MainComponent::refreshMixerMeters()
     }
 
     meters.push_back(mixerMeterDisplay[static_cast<std::size_t>(maximumMixerChannels - 1)]);
+    const auto masterMeter = meters.empty() ? 0.0f : meters.back();
+    if (! meters.empty())
+        meters.pop_back();
     mixerContent.setMeters(meters);
+    mixerMasterContent.setMeters({ masterMeter });
+}
+
+void MainComponent::selectMixerChannel(const int stateIndex, const int laneIndex)
+{
+    if (stateIndex < 0 || laneIndex < 0)
+        return;
+
+    storeActiveGridSlot();
+    storeActiveTransitionCode();
+
+    bool stateChanged = false;
+    int laneCount = 0;
+    double stateBpm = transportEngine.getBpm();
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        if (stateIndex >= static_cast<int>(compositionStates.size()))
+            return;
+
+        auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+        if (laneIndex >= static_cast<int>(state.grids.size()))
+            return;
+
+        stateChanged = stateIndex != activeStateIndex;
+        activeStateIndex = stateIndex;
+        activeGridSlot = laneIndex;
+        laneCount = static_cast<int>(state.grids.size());
+        stateBpm = state.bpm;
+        gridModel.applySnapshot(state.grids[static_cast<std::size_t>(activeGridSlot)].snapshot);
+    }
+
+    transportEngine.setBpm(stateBpm);
+    updateTransportControls();
+    updateStateAdvanceControls();
+    updateGridSlotControls();
+    showActiveTransitionCode();
+
+    if (stateChanged && ! transportEngine.isPlaying())
+        compileScLanesForState(activeStateIndex);
+
+    showActiveLane();
+    refreshStateGraph();
+    refreshArrangementView();
+    refreshMixerView();
+    statusLog.append("Selected mixer lane S"
+                     + juce::String(stateIndex + 1).paddedLeft('0', 2)
+                     + " L"
+                     + juce::String(laneIndex + 1).paddedLeft('0', 2)
+                     + "/"
+                     + juce::String(laneCount));
+    repaint();
+}
+
+void MainComponent::toggleMixerStateCollapsed(const int stateIndex)
+{
+    if (stateIndex < 0)
+        return;
+
+    juce::String stateName;
+    bool collapsed = false;
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        if (stateIndex >= static_cast<int>(compositionStates.size()))
+            return;
+
+        mixerStateCollapsed.resize(compositionStates.size(), false);
+        collapsed = ! mixerStateCollapsed[static_cast<std::size_t>(stateIndex)];
+        mixerStateCollapsed[static_cast<std::size_t>(stateIndex)] = collapsed;
+        stateName = compositionStates[static_cast<std::size_t>(stateIndex)].name;
+    }
+
+    refreshMixerView();
+    statusLog.append((collapsed ? "Collapsed " : "Expanded ")
+                     + (stateName.isNotEmpty()
+                            ? stateName
+                            : "state " + juce::String(stateIndex + 1)));
+    repaint();
+}
+
+void MainComponent::toggleMixerMute(const int stateIndex, const int laneIndex, const int mixerControlIndex)
+{
+    if (stateIndex < 0 || laneIndex < 0 || mixerControlIndex < 0 || mixerControlIndex >= maximumMixerChannels - 1)
+        return;
+
+    bool muted = false;
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        if (stateIndex >= static_cast<int>(compositionStates.size()))
+            return;
+
+        auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+        if (laneIndex >= static_cast<int>(state.grids.size()))
+            return;
+
+        auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+        lane.mixerMuted = mixerMuteButtons[static_cast<std::size_t>(mixerControlIndex)].getToggleState();
+        muted = lane.mixerMuted;
+    }
+
+    refreshMixerView();
+    statusLog.append("Lane S"
+                     + juce::String(stateIndex + 1).paddedLeft('0', 2)
+                     + " L"
+                     + juce::String(laneIndex + 1).paddedLeft('0', 2)
+                     + (muted ? " muted" : " unmuted"));
+    repaint();
+}
+
+void MainComponent::toggleMixerSolo(const int stateIndex, const int laneIndex, const int mixerControlIndex)
+{
+    if (stateIndex < 0 || laneIndex < 0 || mixerControlIndex < 0 || mixerControlIndex >= maximumMixerChannels - 1)
+        return;
+
+    bool soloed = false;
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        if (stateIndex >= static_cast<int>(compositionStates.size()))
+            return;
+
+        auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+        if (laneIndex >= static_cast<int>(state.grids.size()))
+            return;
+
+        auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+        lane.mixerSoloed = mixerSoloButtons[static_cast<std::size_t>(mixerControlIndex)].getToggleState();
+        soloed = lane.mixerSoloed;
+    }
+
+    refreshMixerView();
+    statusLog.append("Lane S"
+                     + juce::String(stateIndex + 1).paddedLeft('0', 2)
+                     + " L"
+                     + juce::String(laneIndex + 1).paddedLeft('0', 2)
+                     + (soloed ? " soloed" : " unsoloed"));
+    repaint();
 }
 
 void MainComponent::configureArrangementView()
@@ -3654,6 +4664,11 @@ void MainComponent::configureInstrumentView()
                              static_cast<juce::Component*>(&saveInstrumentButton),
                              static_cast<juce::Component*>(&compileInstrumentButton),
                              static_cast<juce::Component*>(&applyInstrumentMapButton),
+                             static_cast<juce::Component*>(&instrumentAuditionLabel),
+                             static_cast<juce::Component*>(&auditionPitchEditor),
+                             static_cast<juce::Component*>(&auditionVelocityEditor),
+                             static_cast<juce::Component*>(&auditionDurationEditor),
+                             static_cast<juce::Component*>(&auditionButton),
                              static_cast<juce::Component*>(&instrumentCodeLabel),
                              static_cast<juce::Component*>(&instrumentMapLabel),
                              static_cast<juce::Component*>(&instrumentUsedByLabel),
@@ -3674,6 +4689,7 @@ void MainComponent::configureInstrumentView()
     instrumentViewTitleLabel.setText("Instruments", juce::dontSendNotification);
     instrumentCodeLabel.setText("SynthDef", juce::dontSendNotification);
     instrumentMapLabel.setText("Channel Map", juce::dontSendNotification);
+    instrumentAuditionLabel.setText("Audition", juce::dontSendNotification);
     newInstrumentButton.setButtonText("New");
     duplicateInstrumentButton.setButtonText("Duplicate");
     deleteInstrumentButton.setButtonText("Delete");
@@ -3681,7 +4697,17 @@ void MainComponent::configureInstrumentView()
     saveInstrumentButton.setButtonText("Save");
     compileInstrumentButton.setButtonText("Compile");
     applyInstrumentMapButton.setButtonText("Apply Map");
+    auditionButton.setButtonText("Audition");
     instrumentNameEditor.setSelectAllWhenFocused(true);
+    auditionPitchEditor.setText("60", juce::dontSendNotification);
+    auditionVelocityEditor.setText("0.80", juce::dontSendNotification);
+    auditionDurationEditor.setText("2", juce::dontSendNotification);
+    auditionPitchEditor.setInputRestrictions(3, "0123456789");
+    auditionVelocityEditor.setInputRestrictions(5, "0123456789.");
+    auditionDurationEditor.setInputRestrictions(3, "0123456789");
+    auditionPitchEditor.setTooltip("Pitch as a MIDI note");
+    auditionVelocityEditor.setTooltip("Velocity from 0.0 to 1.0");
+    auditionDurationEditor.setTooltip("Duration in transport ticks");
 
     for (int channel = 0; channel < instrumentChannelCount; ++channel)
     {
@@ -3711,6 +4737,10 @@ void MainComponent::configureInstrumentView()
     saveInstrumentButton.onClick = [this] { saveSelectedInstrument(); };
     compileInstrumentButton.onClick = [this] { compileSelectedUserInstrument(); };
     applyInstrumentMapButton.onClick = [this] { applyChannelInstrumentEditors(); };
+    auditionButton.onClick = [this] { auditionSelectedInstrument(); };
+    auditionPitchEditor.onReturnKey = [this] { auditionSelectedInstrument(); };
+    auditionVelocityEditor.onReturnKey = [this] { auditionSelectedInstrument(); };
+    auditionDurationEditor.onReturnKey = [this] { auditionSelectedInstrument(); };
 
     instrumentCodeEditor.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
     instrumentCodeEditor.setTabSize(4, true);
@@ -3748,7 +4778,7 @@ void MainComponent::styleInstrumentView()
     const auto text = lewittInk();
     const auto outline = lewittLine().withAlpha(0.62f);
 
-    for (auto* label : { &instrumentViewTitleLabel, &instrumentCodeLabel, &instrumentMapLabel, &instrumentUsedByLabel })
+    for (auto* label : { &instrumentViewTitleLabel, &instrumentCodeLabel, &instrumentMapLabel, &instrumentUsedByLabel, &instrumentAuditionLabel })
     {
         label->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), label == &instrumentViewTitleLabel ? 20.0f : 13.0f, juce::Font::bold));
         label->setColour(juce::Label::textColourId, text);
@@ -3763,7 +4793,7 @@ void MainComponent::styleInstrumentView()
         label.setColour(juce::Label::textColourId, text.withAlpha(0.76f));
     }
 
-    for (auto* button : { &newInstrumentButton, &duplicateInstrumentButton, &deleteInstrumentButton, &resetInstrumentButton, &saveInstrumentButton, &compileInstrumentButton, &applyInstrumentMapButton })
+    for (auto* button : { &newInstrumentButton, &duplicateInstrumentButton, &deleteInstrumentButton, &resetInstrumentButton, &saveInstrumentButton, &compileInstrumentButton, &applyInstrumentMapButton, &auditionButton })
     {
         button->setColour(juce::TextButton::buttonColourId, panel);
         button->setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
@@ -3785,6 +4815,17 @@ void MainComponent::styleInstrumentView()
     instrumentNameEditor.setColour(juce::TextEditor::focusedOutlineColourId, lewittBlue());
     instrumentNameEditor.setColour(juce::TextEditor::highlightColourId, lewittBlue().withAlpha(0.35f));
     forceBlackEditorText(instrumentNameEditor);
+
+    for (auto* editor : { &auditionPitchEditor, &auditionVelocityEditor, &auditionDurationEditor })
+    {
+        editor->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
+        editor->setJustification(juce::Justification::centred);
+        editor->setColour(juce::TextEditor::backgroundColourId, field);
+        editor->setColour(juce::TextEditor::outlineColourId, outline);
+        editor->setColour(juce::TextEditor::focusedOutlineColourId, lewittBlue());
+        editor->setColour(juce::TextEditor::highlightColourId, lewittBlue().withAlpha(0.35f));
+        forceBlackEditorText(*editor);
+    }
 
     for (auto& selector : instrumentChannelSelectors)
     {
@@ -3984,6 +5025,7 @@ void MainComponent::refreshInstrumentView()
     resetInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex < 0 && selectedDefaultInstrumentIndex >= 0);
     saveInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
     compileInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
+    auditionButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
     updatingInstrumentView = false;
 }
 
@@ -4290,6 +5332,94 @@ void MainComponent::compileSelectedUserInstrument()
 
     userInstrumentCodeDirty = false;
     refreshInstrumentView();
+    repaint();
+}
+
+void MainComponent::auditionSelectedInstrument()
+{
+    storeActiveInstrumentEditor();
+
+    if (! embeddedScAudio.isReady())
+    {
+        statusLog.append("Audition skipped: audio is not ready");
+        repaint();
+        return;
+    }
+
+    juce::String code = instrumentCodeDocument.getAllContent();
+    int stateNumber = 0;
+    int laneNumber = 1;
+
+    if (selectedInstrumentLaneReferenceIndex >= 0 && selectedInstrumentLaneReferenceIndex < static_cast<int>(instrumentLaneReferences.size()))
+    {
+        const auto& reference = instrumentLaneReferences[static_cast<std::size_t>(selectedInstrumentLaneReferenceIndex)];
+        stateNumber = reference.stateIndex + 1;
+        laneNumber = reference.laneIndex + 1;
+    }
+    else if (selectedDefaultInstrumentIndex >= 0)
+    {
+        stateNumber = selectedDefaultInstrumentIndex + 1;
+    }
+    else if (selectedUserInstrumentIndex >= 0)
+    {
+        stateNumber = selectedUserInstrumentIndex + 1;
+    }
+    else
+    {
+        statusLog.append("Audition skipped: no SynthDef selected");
+        repaint();
+        return;
+    }
+
+    const auto synthDefs = extractSynthDefs(code, stateNumber, laneNumber);
+    if (synthDefs.empty() || synthDefs.front().name.isEmpty())
+    {
+        statusLog.append("Audition skipped: no SynthDef found");
+        repaint();
+        return;
+    }
+
+    int loaded = 0;
+    for (const auto& synthDef : synthDefs)
+        if (! embeddedScAudio.loadSynthDef(synthDef.name, synthDef.source))
+            statusLog.append("Audition load failed: " + embeddedScAudio.getLastError());
+        else
+            ++loaded;
+
+    if (loaded == 0)
+    {
+        statusLog.append("Audition skipped: SynthDef did not compile");
+        repaint();
+        return;
+    }
+
+    applyChannelMappingsToEngine();
+
+    const auto synthName = synthDefs.front().name;
+    const auto pitch = juce::jlimit(0, 127, auditionPitchEditor.getText().getIntValue());
+    const auto velocity = static_cast<float>(juce::jlimit(0.0, 1.0, auditionVelocityEditor.getText().getDoubleValue()));
+    const auto durationTicks = static_cast<std::uint64_t>(juce::jlimit(1, 64, auditionDurationEditor.getText().getIntValue()));
+
+    auditionPitchEditor.setText(juce::String(pitch), juce::dontSendNotification);
+    auditionVelocityEditor.setText(juce::String(velocity, 2), juce::dontSendNotification);
+    auditionDurationEditor.setText(juce::String(static_cast<int>(durationTicks)), juce::dontSendNotification);
+
+    EventFields fields;
+    fields.timestampSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+    fields.tick = lastTransportFrame;
+    fields.sourceCell = { 0, 0 };
+    fields.instrumentName = synthName;
+    fields.pitch = pitch;
+    fields.velocity = velocity;
+    fields.durationTicks = durationTicks;
+    fields.parameters["pan"] = "0";
+
+    embeddedScAudio.setTransport(transportEngine.getBpm(), lastTransportFrame, transportEngine.isPlaying());
+    embeddedScAudio.enqueue({ InternalEvent { NoteEvent { fields } } });
+    statusLog.append("Audition: " + synthName
+                     + " pitch " + juce::String(pitch)
+                     + " velocity " + juce::String(velocity, 2)
+                     + " duration " + juce::String(static_cast<int>(durationTicks)));
     repaint();
 }
 
@@ -5659,6 +6789,10 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
         const auto eased = firstBeatPosition * firstBeatPosition * (3.0f - 2.0f * firstBeatPosition);
         return juce::jlimit(0.08f, 1.0f, 0.08f + eased * 0.92f);
     }();
+    const auto hasSoloedLane = std::any_of(state.grids.begin(), state.grids.end(), [](const CompositionGrid& lane)
+    {
+        return lane.mixerSoloed;
+    });
 
     for (int index = 0; index < static_cast<int>(state.grids.size()); ++index)
     {
@@ -5680,7 +6814,11 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
         if (evaluation.grid.width > 0 && evaluation.grid.height > 0)
             grid.snapshot = evaluation.grid;
 
-        applyLaneMixToEvents(evaluation.events, grid, transitionGain);
+        const auto laneAudible = ! grid.mixerMuted && (! hasSoloedLane || grid.mixerSoloed);
+        if (laneAudible)
+            applyLaneMixToEvents(evaluation.events, grid, transitionGain);
+        else
+            evaluation.events.clear();
 
         float lanePeak = 0.0f;
         for (const auto& event : evaluation.events)

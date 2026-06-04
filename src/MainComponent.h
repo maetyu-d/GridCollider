@@ -14,6 +14,7 @@
 #include "Presets/PresetManager.h"
 #include "Utility/StatusLog.h"
 
+#include <algorithm>
 #include <atomic>
 #include <array>
 #include <cmath>
@@ -42,10 +43,16 @@ public:
     void menuToggleMixerView();
     void menuToggleArrangementView();
     void menuToggleInstrumentsView();
+    void menuToggleTransitionsView();
+    void menuToggleEventMonitorView();
+    void menuToggleStateInspectorView();
     void menuLoadExample(const juce::File& file);
     [[nodiscard]] bool isMixerViewVisible() const noexcept;
     [[nodiscard]] bool isArrangementViewVisible() const noexcept;
     [[nodiscard]] bool isInstrumentsViewVisible() const noexcept;
+    [[nodiscard]] bool isTransitionsViewVisible() const noexcept;
+    [[nodiscard]] bool isEventMonitorViewVisible() const noexcept;
+    [[nodiscard]] bool isStateInspectorViewVisible() const noexcept;
 
     void paint(juce::Graphics& graphics) override;
     void resized() override;
@@ -116,14 +123,42 @@ private:
     public:
         struct Strip
         {
+            int state = -1;
+            int lane = -1;
+            int x = 10;
+            int width = 52;
             juce::String name;
             juce::String output;
             juce::Colour colour;
             bool master = false;
+            bool selected = false;
+            bool muted = false;
+            bool soloed = false;
             float meter = 0.0f;
+            float peakHold = 0.0f;
+            int peakHoldTicks = 0;
+        };
+
+        struct Group
+        {
+            int state = -1;
+            juce::String name;
+            int laneCount = 0;
+            juce::Colour colour;
+            bool collapsed = false;
+            juce::Rectangle<int> bounds;
         };
 
         MixerContentComponent() { setOpaque(true); }
+
+        std::function<void(int, int)> onStripClicked;
+        std::function<void(int)> onStateHeaderClicked;
+
+        void setGroups(std::vector<Group> newGroups)
+        {
+            groups = std::move(newGroups);
+            repaint();
+        }
 
         void setStrips(std::vector<Strip> newStrips, int newStripWidth, int newContentHeight)
         {
@@ -142,11 +177,109 @@ private:
                 auto& strip = strips[static_cast<std::size_t>(index)];
                 const auto next = juce::jlimit(0.0f, 1.0f, meters[static_cast<std::size_t>(index)]);
 
-                if (std::abs(strip.meter - next) <= 0.0015f)
+                auto nextPeak = strip.peakHold;
+                auto nextHoldTicks = strip.peakHoldTicks;
+                if (next >= strip.peakHold - 0.003f)
+                {
+                    nextPeak = next;
+                    nextHoldTicks = 18;
+                }
+                else if (nextHoldTicks > 0)
+                {
+                    --nextHoldTicks;
+                }
+                else
+                {
+                    nextPeak = juce::jmax(next, strip.peakHold - 0.018f);
+                }
+
+                if (std::abs(strip.meter - next) <= 0.0015f
+                    && std::abs(strip.peakHold - nextPeak) <= 0.0015f
+                    && strip.peakHoldTicks == nextHoldTicks)
                     continue;
 
                 strip.meter = next;
-                repaint(10 + index * stripWidth, 0, stripWidth, getHeight());
+                strip.peakHold = nextPeak;
+                strip.peakHoldTicks = nextHoldTicks;
+                repaint(strip.x, 0, strip.width, getHeight());
+            }
+        }
+
+        void mouseDown(const juce::MouseEvent& event) override
+        {
+            if (onStateHeaderClicked != nullptr)
+            {
+                for (const auto& group : groups)
+                {
+                    if (group.bounds.contains(event.getPosition()))
+                    {
+                        onStateHeaderClicked(group.state);
+                        return;
+                    }
+                }
+            }
+
+            if (onStripClicked == nullptr)
+                return;
+
+            for (const auto& strip : strips)
+            {
+                if (strip.master || strip.state < 0 || strip.lane < 0)
+                    continue;
+
+                if (getStripBounds(strip).contains(event.getPosition()))
+                {
+                    onStripClicked(strip.state, strip.lane);
+                    return;
+                }
+            }
+        }
+
+        [[nodiscard]] juce::Rectangle<int> getStripBounds(const Strip& strip) const
+        {
+            const auto y = strip.master && groups.empty() ? 10 : 42;
+            return { strip.x,
+                     y,
+                     juce::jmax(24, strip.width - 6),
+                     juce::jmax(380, contentHeight - y - 10) };
+        }
+
+        void paintGroupHeaders(juce::Graphics& graphics,
+                               const juce::Colour& ink,
+                               const juce::Colour& line)
+        {
+            graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::bold));
+
+            for (const auto& group : groups)
+            {
+                if (group.bounds.isEmpty())
+                    continue;
+
+                graphics.setColour(group.colour.withAlpha(group.collapsed ? 0.24f : 0.16f));
+                graphics.fillRoundedRectangle(group.bounds.toFloat(), 4.0f);
+                graphics.setColour(group.colour.withAlpha(0.72f));
+                graphics.drawRoundedRectangle(group.bounds.toFloat().reduced(0.5f), 4.0f, 1.0f);
+
+                graphics.setColour(ink.withAlpha(group.collapsed ? 0.90f : 0.76f));
+                auto labelArea = group.bounds.reduced(7, 0);
+                const auto glyph = group.collapsed ? "+" : "-";
+                graphics.drawFittedText(glyph, labelArea.removeFromLeft(13), juce::Justification::centred, 1);
+                labelArea.removeFromLeft(2);
+                graphics.drawFittedText(group.name
+                                            + "  "
+                                            + juce::String(group.laneCount)
+                                            + (group.laneCount == 1 ? " lane" : " lanes"),
+                                        labelArea,
+                                        juce::Justification::centredLeft,
+                                        1);
+
+                if (! group.collapsed)
+                {
+                    graphics.setColour(line.withAlpha(0.38f));
+                    graphics.drawVerticalLine(group.bounds.getX(),
+                                              static_cast<float>(group.bounds.getBottom() + 4),
+                                              static_cast<float>(getHeight() - 10));
+                }
             }
         }
 
@@ -163,49 +296,79 @@ private:
             for (int y = 26; y < getHeight(); y += 34)
                 graphics.drawHorizontalLine(y, 0.0f, static_cast<float>(getWidth()));
 
+            paintGroupHeaders(graphics, ink, line);
+
             for (int index = 0; index < static_cast<int>(strips.size()); ++index)
             {
                 const auto& channel = strips[static_cast<std::size_t>(index)];
-                const auto x = 10 + index * stripWidth;
-                auto bounds = juce::Rectangle<int>(x, 10, stripWidth - 8, juce::jmax(380, contentHeight - 20));
+                auto bounds = getStripBounds(channel);
 
-                graphics.setColour(channel.master ? juce::Colour::fromRGB(69, 65, 79) : strip);
+                graphics.setColour(channel.master ? juce::Colour::fromRGB(69, 65, 79)
+                                                  : channel.selected ? strip.brighter(0.09f)
+                                                                     : strip);
                 graphics.fillRect(bounds);
-                graphics.setColour(line.withAlpha(channel.master ? 0.90f : 0.64f));
-                graphics.drawRect(bounds, channel.master ? 2 : 1);
+                graphics.setColour(channel.selected ? channel.colour.brighter(0.24f)
+                                                    : line.withAlpha(channel.master ? 0.90f : 0.64f));
+                graphics.drawRect(bounds, channel.master || channel.selected ? 2 : 1);
 
-                auto colourBand = bounds.removeFromBottom(44);
+                auto colourBand = bounds.removeFromBottom(36);
                 graphics.setColour(channel.colour);
                 graphics.fillRect(colourBand);
 
-                auto header = bounds.removeFromTop(72).reduced(6, 7);
+                auto header = bounds.removeFromTop(channel.master ? 56 : 62).reduced(5, 6);
                 graphics.setColour(ink);
-                graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::bold));
-                graphics.drawFittedText(channel.name, header.removeFromTop(23), juce::Justification::centred, 1);
+                graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.2f, juce::Font::bold));
+                graphics.drawFittedText(channel.name, header.removeFromTop(20), juce::Justification::centred, 1);
 
-                graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::plain));
+                graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.0f, juce::Font::plain));
                 graphics.setColour(ink.withAlpha(0.68f));
                 graphics.drawFittedText(channel.master ? "STEREO OUT" : channel.output,
-                                        header.removeFromTop(16),
+                                        header.removeFromTop(14),
                                         juce::Justification::centred,
                                         1);
 
                 if (! channel.master)
                 {
-                    const auto panGuide = juce::Rectangle<int>(bounds.getX() + 13, bounds.getY() + 18, bounds.getWidth() - 26, 14);
-                    graphics.setColour(line.withAlpha(0.35f));
-                    graphics.drawHorizontalLine(panGuide.getCentreY(), static_cast<float>(panGuide.getX()), static_cast<float>(panGuide.getRight()));
-                    graphics.drawVerticalLine(panGuide.getCentreX(), static_cast<float>(panGuide.getY()), static_cast<float>(panGuide.getBottom()));
-                    graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 7.5f, juce::Font::plain));
-                    graphics.setColour(ink.withAlpha(0.55f));
-                    graphics.drawFittedText("L", panGuide.withTrimmedRight(panGuide.getWidth() - 10), juce::Justification::centredLeft, 1);
-                    graphics.drawFittedText("R", panGuide.withTrimmedLeft(panGuide.getWidth() - 10), juce::Justification::centredRight, 1);
+                    auto stateRow = header.removeFromTop(16);
+                    graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.0f, juce::Font::bold));
+                    graphics.setColour(channel.muted ? juce::Colour::fromRGB(255, 205, 60) : ink.withAlpha(0.36f));
+                    graphics.drawFittedText("M", stateRow.removeFromLeft(stateRow.getWidth() / 2), juce::Justification::centred, 1);
+                    graphics.setColour(channel.soloed ? juce::Colour::fromRGB(102, 224, 133) : ink.withAlpha(0.36f));
+                    graphics.drawFittedText("S", stateRow, juce::Justification::centred, 1);
+                }
+
+                if (! channel.master)
+                {
+                    const auto knobSize = juce::jmin(34, juce::jmax(24, bounds.getWidth() - 8));
+                    const auto knobArea = juce::Rectangle<int>(bounds.getCentreX() - knobSize / 2,
+                                                               bounds.getY() + 9,
+                                                               knobSize,
+                                                               knobSize);
+                    graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 7.0f, juce::Font::bold));
+                    graphics.setColour(ink.withAlpha(0.44f));
+                    graphics.drawFittedText("PAN",
+                                            juce::Rectangle<int>(bounds.getX(), bounds.getY() - 3, bounds.getWidth(), 10),
+                                            juce::Justification::centred,
+                                            1);
+                    graphics.setColour(line.withAlpha(0.62f));
+                    graphics.fillEllipse(knobArea.toFloat());
+                    graphics.setColour(ink.withAlpha(0.28f));
+                    graphics.drawEllipse(knobArea.toFloat().reduced(0.5f), 1.0f);
+                    graphics.setColour(ink.withAlpha(0.56f));
+                    graphics.drawVerticalLine(knobArea.getCentreX(),
+                                              static_cast<float>(knobArea.getY() + 4),
+                                              static_cast<float>(knobArea.getY() + 10));
+                    auto panLetters = juce::Rectangle<int>(bounds.getX(), knobArea.getBottom() - 2, bounds.getWidth(), 10);
+                    graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 6.5f, juce::Font::bold));
+                    graphics.drawFittedText("L", panLetters.removeFromLeft(panLetters.getWidth() / 3), juce::Justification::centred, 1);
+                    graphics.drawFittedText("C", panLetters.removeFromLeft(panLetters.getWidth() / 2), juce::Justification::centred, 1);
+                    graphics.drawFittedText("R", panLetters, juce::Justification::centred, 1);
                 }
 
                 const auto faderLane = juce::Rectangle<int>(bounds.getCentreX() - 1,
-                                                            bounds.getY() + (channel.master ? 32 : 62),
+                                                            bounds.getY() + (channel.master ? 26 : 72),
                                                             2,
-                                                            juce::jmax(180, bounds.getHeight() - (channel.master ? 114 : 144)));
+                                                            juce::jmax(190, bounds.getHeight() - (channel.master ? 90 : 140)));
                 graphics.setColour(line.withAlpha(0.28f));
                 graphics.fillRect(faderLane.expanded(7, 0));
                 graphics.setColour(line.withAlpha(0.42f));
@@ -238,6 +401,15 @@ private:
                                               : juce::Colour::fromRGB(82, 220, 110));
                 graphics.fillRect(meterFill);
 
+                const auto peakHold = juce::jlimit(0.0f, 1.0f, channel.peakHold);
+                if (peakHold > 0.01f)
+                {
+                    const auto peakY = meterBounds.getBottom()
+                                       - static_cast<int>(std::round(static_cast<float>(meterBounds.getHeight()) * peakHold));
+                    graphics.setColour(ink.withAlpha(0.88f));
+                    graphics.fillRect(meterBounds.withY(peakY).withHeight(2).expanded(1, 0));
+                }
+
                 graphics.setColour(juce::Colours::white.withAlpha(0.88f));
                 graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.5f, juce::Font::bold));
                 graphics.drawFittedText(channel.name, colourBand.reduced(5, 4), juce::Justification::centred, 2);
@@ -245,9 +417,123 @@ private:
         }
 
     private:
+        std::vector<Group> groups;
         std::vector<Strip> strips;
         int stripWidth = 112;
         int contentHeight = 420;
+    };
+
+    class EventMonitorComponent final : public juce::Component
+    {
+    public:
+        EventMonitorComponent()
+        {
+            setOpaque(true);
+        }
+
+        void setLines(juce::StringArray newLines)
+        {
+            const auto wasNearBottom = scrollOffsetRows >= getMaxScrollRows() - 2;
+            lines = std::move(newLines);
+
+            if (wasNearBottom)
+                scrollOffsetRows = getMaxScrollRows();
+            else
+                scrollOffsetRows = juce::jlimit(0, getMaxScrollRows(), scrollOffsetRows);
+
+            repaint();
+        }
+
+        void scrollToEnd()
+        {
+            scrollOffsetRows = getMaxScrollRows();
+            repaint();
+        }
+
+        void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) override
+        {
+            const auto rows = juce::jmax(1, juce::roundToInt(std::abs(wheel.deltaY) * 9.0f));
+            scrollOffsetRows += wheel.deltaY > 0.0f ? -rows : rows;
+            scrollOffsetRows = juce::jlimit(0, getMaxScrollRows(), scrollOffsetRows);
+            repaint();
+        }
+
+        void resized() override
+        {
+            scrollOffsetRows = juce::jlimit(0, getMaxScrollRows(), scrollOffsetRows);
+        }
+
+        void paint(juce::Graphics& graphics) override
+        {
+            const auto background = juce::Colour::fromRGB(18, 19, 20);
+            const auto rowAlt = juce::Colour::fromRGB(29, 30, 31);
+            const auto line = juce::Colour::fromRGB(82, 84, 86);
+            const auto text = juce::Colour::fromRGB(235, 236, 232);
+            const auto accent = juce::Colour::fromRGB(95, 178, 222);
+
+            graphics.fillAll(background);
+            graphics.setColour(line.withAlpha(0.72f));
+            graphics.drawRect(getLocalBounds(), 1);
+            graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
+
+            const auto textArea = getLocalBounds().reduced(12, 9).withTrimmedRight(14);
+            const auto visibleRows = getVisibleRows();
+
+            for (int row = 0; row < visibleRows; ++row)
+            {
+                const auto lineIndex = scrollOffsetRows + row;
+                if (lineIndex >= lines.size())
+                    break;
+
+                auto rowBounds = textArea.withY(textArea.getY() + row * lineHeight).withHeight(lineHeight);
+                if ((lineIndex & 1) != 0)
+                {
+                    graphics.setColour(rowAlt.withAlpha(0.42f));
+                    graphics.fillRect(rowBounds.expanded(4, 0));
+                }
+
+                graphics.setColour(text.withAlpha(lineIndex == lines.size() - 1 ? 1.0f : 0.86f));
+                graphics.drawText(lines[lineIndex], rowBounds, juce::Justification::centredLeft, false);
+            }
+
+            drawScrollBar(graphics, accent, line);
+        }
+
+    private:
+        [[nodiscard]] int getVisibleRows() const
+        {
+            return juce::jmax(1, (getHeight() - 18) / lineHeight);
+        }
+
+        [[nodiscard]] int getMaxScrollRows() const
+        {
+            return juce::jmax(0, lines.size() - getVisibleRows());
+        }
+
+        void drawScrollBar(juce::Graphics& graphics, juce::Colour accent, juce::Colour line) const
+        {
+            const auto maxScroll = getMaxScrollRows();
+            if (maxScroll <= 0)
+                return;
+
+            auto track = getLocalBounds().reduced(6, 8).removeFromRight(5);
+            graphics.setColour(line.withAlpha(0.30f));
+            graphics.fillRoundedRectangle(track.toFloat(), 2.5f);
+
+            const auto visibleRatio = juce::jlimit(0.05f,
+                                                   1.0f,
+                                                   static_cast<float>(getVisibleRows()) / static_cast<float>(lines.size()));
+            const auto thumbHeight = juce::jmax(18, juce::roundToInt(static_cast<float>(track.getHeight()) * visibleRatio));
+            const auto travel = juce::jmax(1, track.getHeight() - thumbHeight);
+            const auto thumbY = track.getY() + juce::roundToInt(static_cast<float>(travel) * static_cast<float>(scrollOffsetRows) / static_cast<float>(maxScroll));
+
+            graphics.setColour(accent.withAlpha(0.88f));
+            graphics.fillRoundedRectangle(track.withY(thumbY).withHeight(thumbHeight).toFloat(), 2.5f);
+        }
+
+        juce::StringArray lines;
+        int scrollOffsetRows = 0;
+        static constexpr int lineHeight = 18;
     };
 
     class ArrangementContentComponent final : public juce::Component
@@ -402,6 +688,14 @@ private:
     void configureEventMonitor();
     void appendEventMonitorLine(const LogEvent& event);
     void refreshEventMonitor();
+    void configureStateInspectorView();
+    void styleStateInspectorView();
+    void refreshStateInspectorView();
+    void applyStateInspectorEditors();
+    void cycleStateInspectorAdvanceMode();
+    void applyStateInspectorLaneEditor(int laneIndex);
+    void toggleStateInspectorLaneKind(int laneIndex);
+    void toggleStateInspectorLanePhase(int laneIndex);
     void configureTransportControls();
     void styleTransportControls();
     void updateTransportControls();
@@ -430,6 +724,10 @@ private:
     void toggleMixerView();
     void refreshMixerView();
     void refreshMixerMeters();
+    void selectMixerChannel(int stateIndex, int laneIndex);
+    void toggleMixerStateCollapsed(int stateIndex);
+    void toggleMixerMute(int stateIndex, int laneIndex, int mixerControlIndex);
+    void toggleMixerSolo(int stateIndex, int laneIndex, int mixerControlIndex);
     void configureArrangementView();
     void toggleArrangementView();
     void refreshArrangementView();
@@ -448,6 +746,7 @@ private:
     void saveSelectedInstrument();
     void resetSelectedDefaultInstrument();
     void compileSelectedUserInstrument();
+    void auditionSelectedInstrument();
     void compileEditableDefaultSynthDefs();
     void compileUserInstruments();
     void applyChannelInstrumentEditors();
@@ -565,6 +864,8 @@ private:
         double phaseOffsetDegrees = 0.0;
         float mixerLevel = 1.0f;
         float mixerPan = 0.0f;
+        bool mixerMuted = false;
+        bool mixerSoloed = false;
         std::uint64_t lastEvaluatedFrame = std::numeric_limits<std::uint64_t>::max();
     };
 
@@ -613,8 +914,32 @@ private:
     juce::TextButton embeddedScTestButton;
     juce::Label transitionCodeLabel;
     SourceCodeBackdropComponent transitionCodeBackdrop;
-    juce::TextEditor eventMonitor;
+    EventMonitorComponent eventMonitor;
     juce::Label eventMonitorLabel;
+    juce::Component stateInspectorView;
+    juce::Label stateInspectorTitleLabel;
+    juce::Label stateInspectorMetaLabel;
+    juce::Label stateInspectorNameLabel;
+    juce::Label stateInspectorBpmLabel;
+    juce::Label stateInspectorSignatureLabel;
+    juce::Label stateInspectorAdvanceLabel;
+    juce::Label stateInspectorTransitionLabel;
+    juce::Label stateInspectorLaneHeaderLabel;
+    juce::TextEditor stateInspectorNameEditor;
+    juce::TextEditor stateInspectorBpmEditor;
+    juce::TextEditor stateInspectorTimeSignatureNumeratorEditor;
+    juce::TextEditor stateInspectorTimeSignatureDenominatorEditor;
+    juce::TextButton stateInspectorAdvanceModeButton;
+    juce::TextEditor stateInspectorAdvanceIntervalEditor;
+    std::array<juce::Label, 8> stateInspectorLaneLabels;
+    std::array<juce::Label, 8> stateInspectorLaneSizeLabels;
+    std::array<juce::TextButton, 8> stateInspectorLaneKindButtons;
+    std::array<juce::TextEditor, 8> stateInspectorLaneRatioEditors;
+    std::array<juce::TextButton, 8> stateInspectorLanePhaseButtons;
+    std::array<juce::TextEditor, 8> stateInspectorLanePhaseEditors;
+    std::array<juce::TextEditor, 8> stateInspectorLaneLevelEditors;
+    std::array<juce::TextEditor, 8> stateInspectorLanePanEditors;
+    std::array<juce::TextEditor, 8> stateInspectorLaneInstrumentEditors;
     SourceCodeBackdropComponent laneCodeBackdrop;
     SuperColliderCodeTokeniser scCodeTokeniser;
     juce::CodeDocument transitionCodeDocument;
@@ -624,6 +949,7 @@ private:
     CodeDocumentChangeListener laneScCodeDocumentListener;
     CodeDocumentChangeListener instrumentCodeDocumentListener;
     juce::CodeEditorComponent transitionCodeEditor;
+    juce::CodeEditorComponent stateInspectorTransitionEditor;
     juce::CodeEditorComponent laneScCodeEditor;
     juce::CodeEditorComponent instrumentCodeEditor;
 
@@ -631,6 +957,7 @@ private:
     static constexpr int instrumentChannelCount = EmbeddedScAudioEngine::channelCount;
     juce::Viewport mixerViewport;
     MixerContentComponent mixerContent;
+    MixerContentComponent mixerMasterContent;
     juce::Viewport arrangementViewport;
     ArrangementContentComponent arrangementContent;
     juce::Component instrumentView;
@@ -644,6 +971,11 @@ private:
     juce::TextButton saveInstrumentButton;
     juce::TextButton compileInstrumentButton;
     juce::TextButton applyInstrumentMapButton;
+    juce::Label instrumentAuditionLabel;
+    juce::TextEditor auditionPitchEditor;
+    juce::TextEditor auditionVelocityEditor;
+    juce::TextEditor auditionDurationEditor;
+    juce::TextButton auditionButton;
     juce::Label instrumentCodeLabel;
     juce::Label instrumentMapLabel;
     juce::Label instrumentUsedByLabel;
@@ -659,6 +991,7 @@ private:
     std::array<juce::TextButton, maximumMixerChannels> mixerSoloButtons;
     std::array<std::atomic<float>, maximumMixerChannels> mixerMeterPeaks {};
     std::array<float, maximumMixerChannels> mixerMeterDisplay {};
+    std::vector<bool> mixerStateCollapsed;
 
     juce::TextButton playPauseButton;
     juce::TextButton stopButton;
@@ -696,7 +1029,7 @@ private:
     int lastTickInBeat = 0;
     bool lastTickWasBeat = false;
     double lastPulseTimeMs = 0.0;
-    bool eventMonitorDirty = false;
+    std::atomic<bool> eventMonitorDirty { false };
     bool updatingTransitionCodeEditor = false;
     bool updatingLaneCodeEditor = false;
     bool pendingLaneCodeCompile = false;
@@ -720,6 +1053,10 @@ private:
     bool mixerViewVisible = false;
     bool arrangementViewVisible = false;
     bool instrumentsViewVisible = false;
+    bool transitionsViewVisible = false;
+    bool eventMonitorViewVisible = false;
+    bool stateInspectorViewVisible = false;
+    bool updatingStateInspectorView = false;
     std::uint64_t uiFrameCounter = 0;
     double lastTimerCallbackMs = 0.0;
     double timerDeltaMs = 0.0;
@@ -727,6 +1064,7 @@ private:
     std::atomic<std::uint64_t> audioSampleCounter { 0 };
     juce::Array<juce::File> recentPatternFiles;
     juce::StringArray eventMonitorLines;
+    mutable std::mutex eventMonitorMutex;
     std::vector<CompositionState> compositionStates;
     std::optional<CompositionState> copiedState;
     struct UserInstrument

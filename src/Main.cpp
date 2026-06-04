@@ -103,11 +103,17 @@ private:
                 const auto mixerVisible = mainComponent != nullptr && mainComponent->isMixerViewVisible();
                 const auto arrangementVisible = mainComponent != nullptr && mainComponent->isArrangementViewVisible();
                 const auto instrumentsVisible = mainComponent != nullptr && mainComponent->isInstrumentsViewVisible();
-                menu.addItem(9, "Main", true, mainComponent != nullptr && ! mixerVisible && ! arrangementVisible && ! instrumentsVisible);
+                const auto transitionsVisible = mainComponent != nullptr && mainComponent->isTransitionsViewVisible();
+                const auto eventMonitorVisible = mainComponent != nullptr && mainComponent->isEventMonitorViewVisible();
+                const auto stateInspectorVisible = mainComponent != nullptr && mainComponent->isStateInspectorViewVisible();
+                menu.addItem(9, "Main", true, mainComponent != nullptr && ! mixerVisible && ! arrangementVisible && ! instrumentsVisible && ! transitionsVisible && ! eventMonitorVisible && ! stateInspectorVisible);
                 menu.addSeparator();
                 menu.addItem(10, "Mixer", true, mixerVisible);
                 menu.addItem(11, "Arrangement", true, arrangementVisible);
                 menu.addItem(12, "Instruments", true, instrumentsVisible);
+                menu.addItem(13, "Transitions Editor", true, transitionsVisible);
+                menu.addItem(14, "Event Monitor", true, eventMonitorVisible);
+                menu.addItem(15, "State Inspector", true, stateInspectorVisible);
             }
             else if (menuIndex == 2)
             {
@@ -153,6 +159,12 @@ private:
                 mainComponent->menuToggleArrangementView();
             else if (menuItemID == 12)
                 mainComponent->menuToggleInstrumentsView();
+            else if (menuItemID == 13)
+                mainComponent->menuToggleTransitionsView();
+            else if (menuItemID == 14)
+                mainComponent->menuToggleEventMonitorView();
+            else if (menuItemID == 15)
+                mainComponent->menuToggleStateInspectorView();
             else if (menuItemID >= exampleMenuBaseId && menuItemID < exampleMenuBaseId + exampleFiles.size())
                 mainComponent->menuLoadExample(exampleFiles[menuItemID - exampleMenuBaseId]);
 
