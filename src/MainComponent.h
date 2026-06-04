@@ -1,5 +1,6 @@
 #pragma once
 
+#include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_extra/juce_gui_extra.h>
 
@@ -285,8 +286,8 @@ private:
 
         void paint(juce::Graphics& graphics) override
         {
-            const auto paper = juce::Colour::fromRGB(42, 43, 42);
-            const auto strip = juce::Colour::fromRGB(87, 88, 85);
+            const auto paper = juce::Colour::fromRGB(40, 41, 40);
+            const auto strip = juce::Colour::fromRGB(82, 83, 80);
             const auto ink = juce::Colour::fromRGB(242, 242, 236);
             const auto line = juce::Colour::fromRGB(24, 25, 24);
             const auto faint = juce::Colour::fromRGB(140, 142, 136);
@@ -303,51 +304,50 @@ private:
                 const auto& channel = strips[static_cast<std::size_t>(index)];
                 auto bounds = getStripBounds(channel);
 
-                graphics.setColour(channel.master ? juce::Colour::fromRGB(69, 65, 79)
-                                                  : channel.selected ? strip.brighter(0.09f)
+                graphics.setColour(channel.master ? juce::Colour::fromRGB(68, 65, 77)
+                                                  : channel.selected ? strip.brighter(0.08f)
                                                                      : strip);
                 graphics.fillRect(bounds);
                 graphics.setColour(channel.selected ? channel.colour.brighter(0.24f)
                                                     : line.withAlpha(channel.master ? 0.90f : 0.64f));
                 graphics.drawRect(bounds, channel.master || channel.selected ? 2 : 1);
 
-                auto colourBand = bounds.removeFromBottom(36);
+                auto colourBand = bounds.removeFromBottom(34);
                 graphics.setColour(channel.colour);
                 graphics.fillRect(colourBand);
 
-                auto header = bounds.removeFromTop(channel.master ? 56 : 62).reduced(5, 6);
+                auto header = bounds.removeFromTop(channel.master ? 66 : 84).reduced(5, 6);
                 graphics.setColour(ink);
                 graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.2f, juce::Font::bold));
-                graphics.drawFittedText(channel.name, header.removeFromTop(20), juce::Justification::centred, 1);
+                graphics.drawFittedText(channel.name, header.removeFromTop(19), juce::Justification::centred, 1);
 
                 graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.0f, juce::Font::plain));
-                graphics.setColour(ink.withAlpha(0.68f));
-                graphics.drawFittedText(channel.master ? "STEREO OUT" : channel.output,
-                                        header.removeFromTop(14),
-                                        juce::Justification::centred,
-                                        1);
+                auto routeArea = header.removeFromTop(channel.master ? 18 : 22).reduced(channel.master ? 1 : 0, 1);
+                auto routeLabel = channel.master ? juce::String("STEREO") : channel.output;
+                if (! channel.master)
+                    routeLabel = routeLabel.startsWith("BUS ")
+                                     ? "B" + routeLabel.fromFirstOccurrenceOf("BUS ", false, false)
+                                     : "ST";
+                graphics.setColour(channel.master ? juce::Colour::fromRGB(55, 52, 66)
+                                                  : line.withAlpha(0.44f));
+                graphics.fillRoundedRectangle(routeArea.toFloat(), 2.0f);
+                graphics.setColour(channel.master ? channel.colour.withAlpha(0.40f)
+                                                  : ink.withAlpha(0.20f));
+                graphics.drawRoundedRectangle(routeArea.toFloat().reduced(0.5f), 2.0f, 1.0f);
+                graphics.setColour(ink.withAlpha(channel.master ? 0.68f : 0.76f));
+                graphics.drawFittedText(routeLabel, routeArea, juce::Justification::centred, 1);
 
                 if (! channel.master)
                 {
-                    auto stateRow = header.removeFromTop(16);
-                    graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.0f, juce::Font::bold));
-                    graphics.setColour(channel.muted ? juce::Colour::fromRGB(255, 205, 60) : ink.withAlpha(0.36f));
-                    graphics.drawFittedText("M", stateRow.removeFromLeft(stateRow.getWidth() / 2), juce::Justification::centred, 1);
-                    graphics.setColour(channel.soloed ? juce::Colour::fromRGB(102, 224, 133) : ink.withAlpha(0.36f));
-                    graphics.drawFittedText("S", stateRow, juce::Justification::centred, 1);
-                }
-
-                if (! channel.master)
-                {
-                    const auto knobSize = juce::jmin(34, juce::jmax(24, bounds.getWidth() - 8));
+                    const auto knobSize = juce::jmin(32, juce::jmax(24, bounds.getWidth() - 10));
                     const auto knobArea = juce::Rectangle<int>(bounds.getCentreX() - knobSize / 2,
-                                                               bounds.getY() + 9,
+                                                               bounds.getY() + 13,
                                                                knobSize,
                                                                knobSize);
                     graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 7.0f, juce::Font::bold));
                     graphics.setColour(ink.withAlpha(0.44f));
                     graphics.drawFittedText("PAN",
-                                            juce::Rectangle<int>(bounds.getX(), bounds.getY() - 3, bounds.getWidth(), 10),
+                                            juce::Rectangle<int>(bounds.getX(), bounds.getY() + 1, bounds.getWidth(), 10),
                                             juce::Justification::centred,
                                             1);
                     graphics.setColour(line.withAlpha(0.62f));
@@ -366,9 +366,9 @@ private:
                 }
 
                 const auto faderLane = juce::Rectangle<int>(bounds.getCentreX() - 1,
-                                                            bounds.getY() + (channel.master ? 26 : 72),
+                                                            bounds.getY() + (channel.master ? 38 : 64),
                                                             2,
-                                                            juce::jmax(190, bounds.getHeight() - (channel.master ? 90 : 140)));
+                                                            juce::jmax(190, bounds.getHeight() - (channel.master ? 104 : 132)));
                 graphics.setColour(line.withAlpha(0.28f));
                 graphics.fillRect(faderLane.expanded(7, 0));
                 graphics.setColour(line.withAlpha(0.42f));
@@ -410,7 +410,7 @@ private:
                     graphics.fillRect(meterBounds.withY(peakY).withHeight(2).expanded(1, 0));
                 }
 
-                graphics.setColour(juce::Colours::white.withAlpha(0.88f));
+                graphics.setColour(juce::Colours::white.withAlpha(0.90f));
                 graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.5f, juce::Font::bold));
                 graphics.drawFittedText(channel.name, colourBand.reduced(5, 4), juce::Justification::centred, 2);
             }
@@ -421,6 +421,59 @@ private:
         std::vector<Strip> strips;
         int stripWidth = 112;
         int contentHeight = 420;
+    };
+
+    class MixerPluginSlotButton final : public juce::Component
+    {
+    public:
+        std::function<void(int, int)> onOpen;
+        std::function<void(int, int)> onChoose;
+
+        void setSlot(const int newChannelIndex, const int newSlotIndex, juce::String newName, const bool newLoaded)
+        {
+            channelIndex = newChannelIndex;
+            slotIndex = newSlotIndex;
+            name = std::move(newName);
+            loaded = newLoaded;
+            repaint();
+        }
+
+        void mouseUp(const juce::MouseEvent& event) override
+        {
+            if (event.getNumberOfClicks() < 2 && onOpen != nullptr)
+                onOpen(channelIndex, slotIndex);
+        }
+
+        void mouseDoubleClick(const juce::MouseEvent&) override
+        {
+            if (onChoose != nullptr)
+                onChoose(channelIndex, slotIndex);
+        }
+
+        void paint(juce::Graphics& graphics) override
+        {
+            const auto bounds = getLocalBounds().toFloat();
+            const auto background = loaded ? juce::Colour::fromRGB(33, 35, 35)
+                                           : juce::Colour::fromRGB(50, 51, 49);
+            const auto outline = loaded ? juce::Colour::fromRGB(128, 156, 184)
+                                        : juce::Colour::fromRGB(22, 23, 22);
+            const auto text = loaded ? juce::Colour::fromRGB(235, 237, 238)
+                                     : juce::Colour::fromRGB(170, 173, 170);
+
+            graphics.setColour(background);
+            graphics.fillRoundedRectangle(bounds, 2.0f);
+            graphics.setColour(outline.withAlpha(0.86f));
+            graphics.drawRoundedRectangle(bounds.reduced(0.5f), 2.0f, 1.0f);
+            graphics.setColour(text);
+            graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 6.8f, juce::Font::bold));
+            graphics.drawFittedText(loaded ? name : "--", getLocalBounds().reduced(2, 0), juce::Justification::centred, 1);
+        }
+
+    private:
+        int channelIndex = 0;
+        int slotIndex = 0;
+        juce::String name;
+        bool loaded = false;
     };
 
     class EventMonitorComponent final : public juce::Component
@@ -728,6 +781,8 @@ private:
     void toggleMixerStateCollapsed(int stateIndex);
     void toggleMixerMute(int stateIndex, int laneIndex, int mixerControlIndex);
     void toggleMixerSolo(int stateIndex, int laneIndex, int mixerControlIndex);
+    void toggleMixerBusMute(int busIndex, int mixerControlIndex);
+    void toggleMixerBusSolo(int busIndex, int mixerControlIndex);
     void configureArrangementView();
     void toggleArrangementView();
     void refreshArrangementView();
@@ -754,8 +809,25 @@ private:
     void initialiseDefaultInstrumentLayer();
     [[nodiscard]] juce::String createDefaultUserInstrumentCode(const juce::String& name) const;
     void applyMixerControl(int stateIndex, int laneIndex, int mixerControlIndex, bool force = false);
+    void applyMixerBusControl(int busIndex, int mixerControlIndex, bool force = false);
+    void applyMixerRouting(int stateIndex, int laneIndex, int mixerControlIndex);
     void applyMasterLevel();
+    void configurePluginHosting();
+    void loadKnownPluginList();
+    void saveKnownPluginList() const;
+    void scanAndStoreAvailablePlugins();
+    void showMixerPluginChooser(int channelIndex, int slotIndex);
+    void loadMixerPluginSlot(int channelIndex, int slotIndex, const juce::PluginDescription& description);
+    void clearMixerPluginSlot(int channelIndex, int slotIndex);
+    void showMixerPluginEditor(int channelIndex, int slotIndex);
+    void releaseMixerPlugins();
+    void processMixerPluginSlots(juce::AudioBuffer<float>& buffer, int channelIndex);
+    void syncMixerRuntimeState();
+    void mixStemAudioToOutput(juce::AudioBuffer<float>& output);
+    [[nodiscard]] juce::File getPluginListFile() const;
+    [[nodiscard]] juce::String getMixerPluginSlotName(int channelIndex, int slotIndex) const;
     void applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane, float transitionGain = 1.0f) const;
+    void applyBusMixToEvents(std::vector<InternalEvent>& events, int busIndex) const;
     void configureLaneCodePane();
     void styleLaneCodePane();
     void storeActiveLane();
@@ -866,7 +938,26 @@ private:
         float mixerPan = 0.0f;
         bool mixerMuted = false;
         bool mixerSoloed = false;
+        int mixerOutputBus = 0;
         std::uint64_t lastEvaluatedFrame = std::numeric_limits<std::uint64_t>::max();
+    };
+
+    struct MixerBus
+    {
+        juce::String name;
+        float level = 1.0f;
+        float pan = 0.0f;
+        bool muted = false;
+        bool soloed = false;
+    };
+
+    struct MixerPluginSlot
+    {
+        juce::String name;
+        juce::String identifier;
+        std::unique_ptr<juce::AudioPluginInstance> instance;
+        std::unique_ptr<juce::DocumentWindow> editorWindow;
+        bool loading = false;
     };
 
     struct CompositionState
@@ -953,7 +1044,8 @@ private:
     juce::CodeEditorComponent laneScCodeEditor;
     juce::CodeEditorComponent instrumentCodeEditor;
 
-    static constexpr int maximumMixerChannels = 129;
+    static constexpr int maximumMixerBuses = 4;
+    static constexpr int maximumMixerChannels = 16 * 8 + maximumMixerBuses + 1;
     static constexpr int instrumentChannelCount = EmbeddedScAudioEngine::channelCount;
     juce::Viewport mixerViewport;
     MixerContentComponent mixerContent;
@@ -989,9 +1081,27 @@ private:
     std::array<juce::Slider, maximumMixerChannels> mixerPanSliders;
     std::array<juce::TextButton, maximumMixerChannels> mixerMuteButtons;
     std::array<juce::TextButton, maximumMixerChannels> mixerSoloButtons;
+    std::array<juce::ComboBox, maximumMixerChannels> mixerOutputSelectors;
+    std::array<std::array<MixerPluginSlotButton, 2>, maximumMixerChannels> mixerPluginSlotButtons;
     std::array<std::atomic<float>, maximumMixerChannels> mixerMeterPeaks {};
     std::array<float, maximumMixerChannels> mixerMeterDisplay {};
     std::vector<bool> mixerStateCollapsed;
+    juce::AudioPluginFormatManager pluginFormatManager;
+    juce::KnownPluginList knownPluginList;
+    std::array<std::array<MixerPluginSlot, 2>, maximumMixerChannels> mixerPluginSlots;
+    mutable juce::CriticalSection mixerPluginLock;
+    juce::MidiBuffer mixerPluginMidiBuffer;
+    juce::AudioBuffer<float> scStemBuffer;
+    juce::AudioBuffer<float> laneScratchBuffer;
+    juce::AudioBuffer<float> busStemBuffer;
+    std::array<std::atomic<float>, maximumMixerChannels> mixerRuntimeLevel {};
+    std::array<std::atomic<float>, maximumMixerChannels> mixerRuntimePan {};
+    std::array<std::atomic<int>, maximumMixerChannels> mixerRuntimeOutputBus {};
+    std::array<std::atomic<bool>, maximumMixerChannels> mixerRuntimeMuted {};
+    std::array<std::atomic<bool>, maximumMixerChannels> mixerRuntimeSoloed {};
+    std::array<std::atomic<bool>, maximumMixerChannels> mixerRuntimeExists {};
+    std::atomic<bool> mixerRuntimeHasSoloedLane { false };
+    std::atomic<bool> mixerRuntimeHasSoloedBus { false };
 
     juce::TextButton playPauseButton;
     juce::TextButton stopButton;
@@ -1067,6 +1177,7 @@ private:
     mutable std::mutex eventMonitorMutex;
     std::vector<CompositionState> compositionStates;
     std::optional<CompositionState> copiedState;
+    std::array<MixerBus, maximumMixerBuses> mixerBuses;
     struct UserInstrument
     {
         juce::String name;

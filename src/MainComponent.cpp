@@ -664,6 +664,9 @@ namespace
 {
 constexpr int maximumCompositionStates = 16;
 constexpr int maximumGridsPerState = 8;
+constexpr int mixerBusCount = 4;
+constexpr int firstBusMeterIndex = maximumCompositionStates * maximumGridsPerState;
+constexpr int masterMeterIndex = firstBusMeterIndex + mixerBusCount;
 constexpr int outerMargin = 22;
 constexpr int headerHeight = 96;
 constexpr int headerToTransitionGap = 10;
@@ -722,6 +725,8 @@ MainComponent::MainComponent()
 {
     setLookAndFeel(&minimalLookAndFeel);
     initialiseDefaultInstrumentLayer();
+    for (int busIndex = 0; busIndex < mixerBusCount; ++busIndex)
+        mixerBuses[static_cast<std::size_t>(busIndex)].name = "Bus " + juce::String(busIndex + 1);
 
     CompositionGrid firstGrid;
     firstGrid.snapshot = gridModel.createSnapshot();
@@ -731,6 +736,7 @@ MainComponent::MainComponent()
     firstState.transitionCode = createDefaultTransitionCode(1);
     firstState.grids.push_back(std::move(firstGrid));
     compositionStates.push_back(std::move(firstState));
+    syncMixerRuntimeState();
 
     addAndMakeVisible(stateGraph);
     addAndMakeVisible(gridEditor);
@@ -762,6 +768,7 @@ MainComponent::MainComponent()
     configureStateGraph();
     configureGridSlotControls();
     configureLaneCodePane();
+    configurePluginHosting();
     configureMixerView();
     configureArrangementView();
     configureInstrumentView();
@@ -788,6 +795,7 @@ MainComponent::~MainComponent()
     instrumentCodeDocument.removeListener(&instrumentCodeDocumentListener);
     setLookAndFeel(nullptr);
     transportEngine.stop();
+    releaseMixerPlugins();
     stateGraph.removeKeyListener(this);
     gridEditor.removeKeyListener(this);
     shutdownAudio();
@@ -1816,7 +1824,12 @@ void MainComponent::prepareToPlay(const int samplesPerBlockExpected, const doubl
     currentAudioSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     currentAudioBlockSize = samplesPerBlockExpected > 0 ? samplesPerBlockExpected : 512;
 
-    if (embeddedScAudio.prepare(sampleRate, samplesPerBlockExpected, 2))
+    const auto stemOutputChannels = firstBusMeterIndex * 2;
+    scStemBuffer.setSize(stemOutputChannels, currentAudioBlockSize, false, true, true);
+    laneScratchBuffer.setSize(2, currentAudioBlockSize, false, true, true);
+    busStemBuffer.setSize(mixerBusCount * 2, currentAudioBlockSize, false, true, true);
+
+    if (embeddedScAudio.prepare(sampleRate, samplesPerBlockExpected, stemOutputChannels))
     {
         embeddedScAudio.setMasterLevel(masterLevel);
         statusLog.append("Embedded SuperCollider audio ready");
@@ -1852,7 +1865,7 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
     audioCallbackCounter.fetch_add(1, std::memory_order_relaxed);
     audioSampleCounter.fetch_add(static_cast<std::uint64_t>(bufferToFill.numSamples), std::memory_order_relaxed);
 
-    embeddedScAudio.render(output);
+    mixStemAudioToOutput(output);
 
     float peak = 0.0f;
     for (int channel = 0; channel < output.getNumChannels(); ++channel)
@@ -1860,7 +1873,7 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
 
     if (peak > 0.0f)
     {
-        auto& meter = mixerMeterPeaks[static_cast<std::size_t>(maximumMixerChannels - 1)];
+        auto& meter = mixerMeterPeaks[static_cast<std::size_t>(masterMeterIndex)];
         const auto current = meter.load(std::memory_order_relaxed);
         if (peak > current)
             meter.store(juce::jlimit(0.0f, 1.0f, peak), std::memory_order_relaxed);
@@ -1901,6 +1914,7 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
 
 void MainComponent::releaseResources()
 {
+    releaseMixerPlugins();
     embeddedScAudio.release();
 }
 
@@ -2381,6 +2395,19 @@ juce::var MainComponent::serialiseComposition() const
     root->setProperty("activeLane", activeGridSlot);
     root->setProperty("masterLevel", masterLevel);
 
+    juce::Array<juce::var> mixerBusArray;
+    for (const auto& bus : mixerBuses)
+    {
+        auto busObject = std::make_unique<juce::DynamicObject>();
+        busObject->setProperty("name", bus.name);
+        busObject->setProperty("level", bus.level);
+        busObject->setProperty("pan", bus.pan);
+        busObject->setProperty("muted", bus.muted);
+        busObject->setProperty("soloed", bus.soloed);
+        mixerBusArray.add(juce::var(busObject.release()));
+    }
+    root->setProperty("mixerBuses", mixerBusArray);
+
     juce::Array<juce::var> channelMapArray;
     for (const auto& instrument : channelInstrumentMap)
         channelMapArray.add(instrument);
@@ -2432,6 +2459,7 @@ juce::var MainComponent::serialiseComposition() const
             laneObject->setProperty("mixerPan", lane.mixerPan);
             laneObject->setProperty("mixerMuted", lane.mixerMuted);
             laneObject->setProperty("mixerSoloed", lane.mixerSoloed);
+            laneObject->setProperty("mixerOutputBus", lane.mixerOutputBus);
             laneObject->setProperty("scCode", lane.scCode);
             laneObject->setProperty("scSynthName", lane.scSynthName);
             laneObject->setProperty("gridWidth", lane.snapshot.width);
@@ -2462,6 +2490,33 @@ juce::Result MainComponent::restoreComposition(const juce::var& document)
         return juce::Result::fail("Composition has no states");
 
     initialiseDefaultInstrumentLayer();
+    for (int busIndex = 0; busIndex < mixerBusCount; ++busIndex)
+    {
+        auto& bus = mixerBuses[static_cast<std::size_t>(busIndex)];
+        bus.name = "Bus " + juce::String(busIndex + 1);
+        bus.level = 1.0f;
+        bus.pan = 0.0f;
+        bus.muted = false;
+        bus.soloed = false;
+    }
+
+    if (const auto* busesVar = root->getProperty("mixerBuses").getArray())
+    {
+        for (int busIndex = 0; busIndex < juce::jmin(mixerBusCount, busesVar->size()); ++busIndex)
+        {
+            const auto* busObject = busesVar->getReference(busIndex).getDynamicObject();
+            if (busObject == nullptr)
+                continue;
+
+            auto& bus = mixerBuses[static_cast<std::size_t>(busIndex)];
+            const auto name = busObject->getProperty("name").toString().trim();
+            bus.name = name.isNotEmpty() ? name : "Bus " + juce::String(busIndex + 1);
+            bus.level = juce::jlimit(0.0f, 1.25f, static_cast<float>(static_cast<double>(busObject->getProperty("level"))));
+            bus.pan = juce::jlimit(-1.0f, 1.0f, static_cast<float>(static_cast<double>(busObject->getProperty("pan"))));
+            bus.muted = static_cast<bool>(busObject->getProperty("muted"));
+            bus.soloed = static_cast<bool>(busObject->getProperty("soloed"));
+        }
+    }
 
     if (const auto* mapVar = root->getProperty("channelInstrumentMap").getArray())
     {
@@ -2586,6 +2641,7 @@ juce::Result MainComponent::restoreComposition(const juce::var& document)
                 lane.mixerPan = juce::jlimit(-1.0f, 1.0f, static_cast<float>(static_cast<double>(laneObject->getProperty("mixerPan"))));
                 lane.mixerMuted = static_cast<bool>(laneObject->getProperty("mixerMuted"));
                 lane.mixerSoloed = static_cast<bool>(laneObject->getProperty("mixerSoloed"));
+                lane.mixerOutputBus = juce::jlimit(0, mixerBusCount, static_cast<int>(laneObject->getProperty("mixerOutputBus")));
                 lane.scCode = laneObject->getProperty("scCode").toString();
                 lane.scSynthName = laneObject->getProperty("scSynthName").toString();
                 lane.scCodeDirty = lane.kind == CompositionGrid::Kind::supercollider;
@@ -3971,12 +4027,27 @@ void MainComponent::configureMixerView()
         auto& pan = mixerPanSliders[static_cast<std::size_t>(index)];
         auto& mute = mixerMuteButtons[static_cast<std::size_t>(index)];
         auto& solo = mixerSoloButtons[static_cast<std::size_t>(index)];
+        auto& output = mixerOutputSelectors[static_cast<std::size_t>(index)];
 
         mixerContent.addAndMakeVisible(label);
         mixerContent.addAndMakeVisible(level);
         mixerContent.addAndMakeVisible(pan);
         mixerContent.addAndMakeVisible(mute);
         mixerContent.addAndMakeVisible(solo);
+        mixerContent.addAndMakeVisible(output);
+        for (int slotIndex = 0; slotIndex < 2; ++slotIndex)
+        {
+            auto& slotButton = mixerPluginSlotButtons[static_cast<std::size_t>(index)][static_cast<std::size_t>(slotIndex)];
+            mixerContent.addAndMakeVisible(slotButton);
+            slotButton.onOpen = [this](const int channelIndex, const int pluginSlot)
+            {
+                showMixerPluginEditor(channelIndex, pluginSlot);
+            };
+            slotButton.onChoose = [this](const int channelIndex, const int pluginSlot)
+            {
+                showMixerPluginChooser(channelIndex, pluginSlot);
+            };
+        }
 
         label.setJustificationType(juce::Justification::centred);
         level.setSliderStyle(juce::Slider::LinearVertical);
@@ -3995,6 +4066,10 @@ void MainComponent::configureMixerView()
         solo.setButtonText("S");
         mute.setClickingTogglesState(true);
         solo.setClickingTogglesState(true);
+        output.addItem("ST", 1);
+        for (int busIndex = 0; busIndex < mixerBusCount; ++busIndex)
+            output.addItem("B" + juce::String(busIndex + 1), busIndex + 2);
+        output.setSelectedId(1, juce::dontSendNotification);
 
         level.onValueChange = [this, index]
         {
@@ -4032,6 +4107,7 @@ void MainComponent::styleMixerControls()
         auto& pan = mixerPanSliders[static_cast<std::size_t>(index)];
         auto& mute = mixerMuteButtons[static_cast<std::size_t>(index)];
         auto& solo = mixerSoloButtons[static_cast<std::size_t>(index)];
+        auto& output = mixerOutputSelectors[static_cast<std::size_t>(index)];
 
         label.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::bold));
         label.setColour(juce::Label::textColourId, mixerInk);
@@ -4046,6 +4122,15 @@ void MainComponent::styleMixerControls()
         pan.setColour(juce::Slider::rotarySliderOutlineColourId, mixerLine.withAlpha(0.65f));
         pan.setColour(juce::Slider::rotarySliderFillColourId, mixerBlue);
         pan.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(220, 222, 224));
+        output.setColour(juce::ComboBox::backgroundColourId, juce::Colours::transparentBlack);
+        output.setColour(juce::ComboBox::textColourId, juce::Colours::transparentBlack);
+        output.setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
+        output.setColour(juce::ComboBox::arrowColourId, juce::Colours::transparentBlack);
+        output.setColour(juce::PopupMenu::backgroundColourId, mixerPaper);
+        output.setColour(juce::PopupMenu::textColourId, mixerInk);
+        output.setColour(juce::PopupMenu::highlightedBackgroundColourId, mixerBlue.withAlpha(0.70f));
+        output.setColour(juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+        output.setAlpha(0.01f);
 
         for (auto* button : { &mute, &solo })
         {
@@ -4076,10 +4161,14 @@ void MainComponent::toggleMixerView()
 
 void MainComponent::refreshMixerView()
 {
+    syncMixerRuntimeState();
+
     struct Channel
     {
         int state = -1;
         int lane = -1;
+        int bus = -1;
+        int outputBus = 0;
         int x = 10;
         int width = 50;
         juce::String label;
@@ -4100,14 +4189,16 @@ void MainComponent::refreshMixerView()
     std::vector<Channel> channels;
     std::vector<MixerContentComponent::Group> groups;
     const auto stripWidth = 50;
-    const auto masterStripWidth = 74;
-    const auto groupGap = 10;
+    const auto masterStripWidth = 72;
+    const auto groupGap = 12;
     const auto collapsedGroupWidth = 94;
     auto cursorX = 10;
 
+    std::array<MixerBus, maximumMixerBuses> busSnapshot;
     {
         const std::lock_guard lock(gridRuntimeMutex);
         mixerStateCollapsed.resize(compositionStates.size(), false);
+        busSnapshot = mixerBuses;
 
         for (int stateIndex = 0; stateIndex < static_cast<int>(compositionStates.size()); ++stateIndex)
         {
@@ -4143,11 +4234,15 @@ void MainComponent::refreshMixerView()
                 const auto colourIndex = static_cast<std::size_t>(stateIndex * 3 + laneIndex) % channelColours.size();
                 channels.push_back({ stateIndex,
                                      laneIndex,
+                                     -1,
+                                     juce::jlimit(0, mixerBusCount, lane.mixerOutputBus),
                                      cursorX,
                                      stripWidth,
                                      "L" + juce::String(laneIndex + 1).paddedLeft('0', 2)
                                          + " " + (lane.kind == CompositionGrid::Kind::grid ? "G" : "SC"),
-                                     lane.kind == CompositionGrid::Kind::grid ? "GRID" : "SYNTH",
+                                     lane.mixerOutputBus <= 0
+                                         ? juce::String("ST OUT")
+                                         : "BUS " + juce::String(juce::jlimit(1, mixerBusCount, lane.mixerOutputBus)),
                                      juce::Colour(channelColours[colourIndex]),
                                      lane.mixerLevel,
                                      lane.mixerPan,
@@ -4161,7 +4256,38 @@ void MainComponent::refreshMixerView()
         }
     }
 
-    const Channel masterChannel { -1, -1, 10, masterStripWidth, "MASTER", "ST OUT", juce::Colour::fromRGB(86, 64, 178), masterLevel, 0.0f, false, false, true };
+    cursorX += groupGap;
+    const auto busGroupStartX = cursorX;
+    const auto busGroupWidth = mixerBusCount * stripWidth - 4;
+    groups.push_back({ -1,
+                       "BUSES",
+                       mixerBusCount,
+                       juce::Colour::fromRGB(95, 192, 239),
+                       false,
+                       { busGroupStartX, 10, busGroupWidth, 24 } });
+
+    for (int busIndex = 0; busIndex < mixerBusCount; ++busIndex)
+    {
+        const auto& bus = busSnapshot[static_cast<std::size_t>(busIndex)];
+        channels.push_back({ -1,
+                             -1,
+                             busIndex,
+                             0,
+                             cursorX,
+                             stripWidth,
+                             "BUS " + juce::String(busIndex + 1),
+                             "ST OUT",
+                             juce::Colour(channelColours[static_cast<std::size_t>(busIndex + 6) % channelColours.size()]),
+                             bus.level,
+                             bus.pan,
+                             bus.muted,
+                             bus.soloed,
+                             false });
+        cursorX += stripWidth;
+    }
+    cursorX += groupGap;
+
+    const Channel masterChannel { -1, -1, -1, 0, 10, masterStripWidth, "MASTER", "ST OUT", juce::Colour::fromRGB(86, 64, 178), masterLevel, 0.0f, false, false, true };
     masterMixerControlIndex = juce::jlimit(0, maximumMixerChannels - 1, static_cast<int>(channels.size()));
 
     const auto laneCount = static_cast<int>(channels.size());
@@ -4173,8 +4299,10 @@ void MainComponent::refreshMixerView()
     for (const auto& channel : channels)
     {
         const auto meterIndex = channel.master
-                                    ? maximumMixerChannels - 1
-                                    : channel.state * maximumGridsPerState + channel.lane;
+                                    ? masterMeterIndex
+                                    : channel.bus >= 0
+                                        ? firstBusMeterIndex + channel.bus
+                                        : channel.state * maximumGridsPerState + channel.lane;
         const auto meter = meterIndex >= 0 && meterIndex < maximumMixerChannels
                                ? mixerMeterDisplay[static_cast<std::size_t>(meterIndex)]
                                : 0.0f;
@@ -4205,7 +4333,7 @@ void MainComponent::refreshMixerView()
                                       false,
                                       false,
                                       false,
-                                      mixerMeterDisplay[static_cast<std::size_t>(maximumMixerChannels - 1)] } },
+                                      mixerMeterDisplay[static_cast<std::size_t>(masterMeterIndex)] } },
                                  masterStripWidth,
                                  contentHeight);
     mixerLabel.setBounds({});
@@ -4220,6 +4348,7 @@ void MainComponent::refreshMixerView()
         auto& pan = mixerPanSliders[static_cast<std::size_t>(index)];
         auto& mute = mixerMuteButtons[static_cast<std::size_t>(index)];
         auto& solo = mixerSoloButtons[static_cast<std::size_t>(index)];
+        auto& output = mixerOutputSelectors[static_cast<std::size_t>(index)];
 
         label.setVisible(false);
 
@@ -4229,14 +4358,25 @@ void MainComponent::refreshMixerView()
             pan.setVisible(false);
             mute.setVisible(false);
             solo.setVisible(false);
+            output.setVisible(false);
+            for (int slotIndex = 0; slotIndex < 2; ++slotIndex)
+                mixerPluginSlotButtons[static_cast<std::size_t>(index)][static_cast<std::size_t>(slotIndex)].setVisible(false);
             continue;
         }
 
         const auto& channel = laneVisible ? channels[static_cast<std::size_t>(index)] : masterChannel;
+        const auto pluginChannelIndex = channel.master
+                                            ? masterMeterIndex
+                                            : channel.bus >= 0
+                                                ? firstBusMeterIndex + channel.bus
+                                                : channel.state * maximumGridsPerState + channel.lane;
         auto& parent = laneVisible ? static_cast<juce::Component&>(mixerContent)
                                    : static_cast<juce::Component&>(mixerMasterContent);
         parent.addChildComponent(label);
         parent.addAndMakeVisible(level);
+        parent.addChildComponent(output);
+        for (int slotIndex = 0; slotIndex < 2; ++slotIndex)
+            parent.addAndMakeVisible(mixerPluginSlotButtons[static_cast<std::size_t>(index)][static_cast<std::size_t>(slotIndex)]);
         if (channel.master)
         {
             parent.addChildComponent(pan);
@@ -4253,14 +4393,35 @@ void MainComponent::refreshMixerView()
         pan.setVisible(! channel.master);
         mute.setVisible(! channel.master);
         solo.setVisible(! channel.master);
+        const auto routeVisible = channel.state >= 0 && channel.lane >= 0 && ! channel.master;
+        output.setVisible(routeVisible);
 
         const auto stripY = channel.master ? 10 : 42;
         const auto stripBounds = juce::Rectangle<int>(channel.x, stripY, channel.width - 6, juce::jmax(380, contentHeight - stripY - 10));
-        const auto knobSize = juce::jmin(34, juce::jmax(24, stripBounds.getWidth() - 8));
-        const auto panY = stripBounds.getY() + 71;
-        const auto faderTop = stripBounds.getY() + (channel.master ? 82 : 134);
-        const auto faderBottom = stripBounds.getBottom() - 64;
+        const auto knobSize = juce::jmin(32, juce::jmax(24, stripBounds.getWidth() - 10));
+        const auto panY = stripBounds.getY() + 97;
+        const auto faderTop = stripBounds.getY() + (channel.master ? 104 : 148);
+        const auto faderBottom = stripBounds.getBottom() - 66;
         pan.setBounds(stripBounds.getCentreX() - knobSize / 2, panY, knobSize, knobSize);
+        output.setBounds(routeVisible
+                             ? juce::Rectangle<int>(stripBounds.getX() + 5, stripBounds.getY() + 25, stripBounds.getWidth() - 10, 20)
+                             : juce::Rectangle<int>());
+        for (int slotIndex = 0; slotIndex < 2; ++slotIndex)
+        {
+            auto& slotButton = mixerPluginSlotButtons[static_cast<std::size_t>(index)][static_cast<std::size_t>(slotIndex)];
+            const auto slotName = getMixerPluginSlotName(pluginChannelIndex, slotIndex);
+            slotButton.setSlot(pluginChannelIndex, slotIndex, slotName, slotName.isNotEmpty());
+            slotButton.setBounds(channel.master
+                                     ? juce::Rectangle<int>(stripBounds.getX() + 6,
+                                                            stripBounds.getY() + 36 + slotIndex * 20,
+                                                            stripBounds.getWidth() - 12,
+                                                            17)
+                                     : juce::Rectangle<int>(stripBounds.getX() + 5,
+                                                            stripBounds.getY() + 47 + slotIndex * 19,
+                                                            stripBounds.getWidth() - 10,
+                                                            16));
+            slotButton.setVisible(true);
+        }
         level.setBounds(stripBounds.getCentreX() - 11, faderTop, 22, juce::jmax(220, faderBottom - faderTop));
         mute.setBounds(channel.master ? juce::Rectangle<int>() : juce::Rectangle<int>(stripBounds.getX() + 4, stripBounds.getBottom() - 58, 18, 18));
         solo.setBounds(channel.master ? juce::Rectangle<int>() : juce::Rectangle<int>(stripBounds.getRight() - 22, stripBounds.getBottom() - 58, 18, 18));
@@ -4270,12 +4431,43 @@ void MainComponent::refreshMixerView()
         pan.setDoubleClickReturnValue(true, 0.0);
         level.setValue(channel.level, juce::dontSendNotification);
         pan.setValue(channel.pan, juce::dontSendNotification);
+        if (routeVisible)
+            output.setSelectedId(juce::jlimit(1, mixerBusCount + 1, channel.outputBus + 1),
+                                 juce::dontSendNotification);
         mute.setToggleState(channel.muted, juce::dontSendNotification);
         solo.setToggleState(channel.soloed, juce::dontSendNotification);
 
         if (channel.master)
         {
             level.onValueChange = [this] { applyMasterLevel(); };
+        }
+        else if (channel.bus >= 0)
+        {
+            level.onValueChange = [this, busIndex = channel.bus, index]
+            {
+                applyMixerBusControl(busIndex, index, false);
+            };
+            level.onDragEnd = [this, busIndex = channel.bus, index]
+            {
+                applyMixerBusControl(busIndex, index, true);
+            };
+            pan.onValueChange = [this, busIndex = channel.bus, index]
+            {
+                applyMixerBusControl(busIndex, index, false);
+            };
+            pan.onDragEnd = [this, busIndex = channel.bus, index]
+            {
+                applyMixerBusControl(busIndex, index, true);
+            };
+            mute.onClick = [this, busIndex = channel.bus, index]
+            {
+                toggleMixerBusMute(busIndex, index);
+            };
+            solo.onClick = [this, busIndex = channel.bus, index]
+            {
+                toggleMixerBusSolo(busIndex, index);
+            };
+            output.onChange = nullptr;
         }
         else
         {
@@ -4302,6 +4494,10 @@ void MainComponent::refreshMixerView()
             solo.onClick = [this, stateIndex = channel.state, laneIndex = channel.lane, index]
             {
                 toggleMixerSolo(stateIndex, laneIndex, index);
+            };
+            output.onChange = [this, stateIndex = channel.state, laneIndex = channel.lane, index]
+            {
+                applyMixerRouting(stateIndex, laneIndex, index);
             };
         }
     }
@@ -4332,7 +4528,10 @@ void MainComponent::refreshMixerMeters()
         }
     }
 
-    meters.push_back(mixerMeterDisplay[static_cast<std::size_t>(maximumMixerChannels - 1)]);
+    for (int busIndex = 0; busIndex < mixerBusCount; ++busIndex)
+        meters.push_back(mixerMeterDisplay[static_cast<std::size_t>(firstBusMeterIndex + busIndex)]);
+
+    meters.push_back(mixerMeterDisplay[static_cast<std::size_t>(masterMeterIndex)]);
     const auto masterMeter = meters.empty() ? 0.0f : meters.back();
     if (! meters.empty())
         meters.pop_back();
@@ -4477,6 +4676,42 @@ void MainComponent::toggleMixerSolo(const int stateIndex, const int laneIndex, c
                      + " L"
                      + juce::String(laneIndex + 1).paddedLeft('0', 2)
                      + (soloed ? " soloed" : " unsoloed"));
+    repaint();
+}
+
+void MainComponent::toggleMixerBusMute(const int busIndex, const int mixerControlIndex)
+{
+    if (busIndex < 0 || busIndex >= mixerBusCount || mixerControlIndex < 0 || mixerControlIndex >= maximumMixerChannels - 1)
+        return;
+
+    bool muted = false;
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+        auto& bus = mixerBuses[static_cast<std::size_t>(busIndex)];
+        bus.muted = mixerMuteButtons[static_cast<std::size_t>(mixerControlIndex)].getToggleState();
+        muted = bus.muted;
+    }
+
+    refreshMixerView();
+    statusLog.append("Bus " + juce::String(busIndex + 1) + (muted ? " muted" : " unmuted"));
+    repaint();
+}
+
+void MainComponent::toggleMixerBusSolo(const int busIndex, const int mixerControlIndex)
+{
+    if (busIndex < 0 || busIndex >= mixerBusCount || mixerControlIndex < 0 || mixerControlIndex >= maximumMixerChannels - 1)
+        return;
+
+    bool soloed = false;
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+        auto& bus = mixerBuses[static_cast<std::size_t>(busIndex)];
+        bus.soloed = mixerSoloButtons[static_cast<std::size_t>(mixerControlIndex)].getToggleState();
+        soloed = bus.soloed;
+    }
+
+    refreshMixerView();
+    statusLog.append("Bus " + juce::String(busIndex + 1) + (soloed ? " soloed" : " unsoloed"));
     repaint();
 }
 
@@ -5518,19 +5753,540 @@ void MainComponent::applyMixerControl(const int stateIndex, const int laneIndex,
         auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
         lane.mixerLevel = static_cast<float>(mixerLevelSliders[static_cast<std::size_t>(mixerControlIndex)].getValue());
         lane.mixerPan = static_cast<float>(mixerPanSliders[static_cast<std::size_t>(mixerControlIndex)].getValue());
+        const auto runtimeIndex = stateIndex * maximumGridsPerState + laneIndex;
+        if (runtimeIndex >= 0 && runtimeIndex < firstBusMeterIndex)
+        {
+            mixerRuntimeLevel[static_cast<std::size_t>(runtimeIndex)].store(juce::jlimit(0.0f, 1.25f, lane.mixerLevel), std::memory_order_relaxed);
+            mixerRuntimePan[static_cast<std::size_t>(runtimeIndex)].store(juce::jlimit(-1.0f, 1.0f, lane.mixerPan), std::memory_order_relaxed);
+        }
     }
+}
+
+void MainComponent::applyMixerBusControl(const int busIndex, const int mixerControlIndex, const bool force)
+{
+    if (busIndex < 0 || busIndex >= mixerBusCount)
+        return;
+
+    if (mixerControlIndex < 0 || mixerControlIndex >= maximumMixerChannels - 1)
+        return;
+
+    {
+        std::unique_lock lock(gridRuntimeMutex, std::defer_lock);
+
+        if (force)
+            lock.lock();
+        else if (! lock.try_lock())
+            return;
+
+        auto& bus = mixerBuses[static_cast<std::size_t>(busIndex)];
+        bus.level = static_cast<float>(mixerLevelSliders[static_cast<std::size_t>(mixerControlIndex)].getValue());
+        bus.pan = static_cast<float>(mixerPanSliders[static_cast<std::size_t>(mixerControlIndex)].getValue());
+        const auto runtimeIndex = firstBusMeterIndex + busIndex;
+        mixerRuntimeLevel[static_cast<std::size_t>(runtimeIndex)].store(juce::jlimit(0.0f, 1.25f, bus.level), std::memory_order_relaxed);
+        mixerRuntimePan[static_cast<std::size_t>(runtimeIndex)].store(juce::jlimit(-1.0f, 1.0f, bus.pan), std::memory_order_relaxed);
+    }
+}
+
+void MainComponent::applyMixerRouting(const int stateIndex, const int laneIndex, const int mixerControlIndex)
+{
+    if (stateIndex < 0 || laneIndex < 0 || mixerControlIndex < 0 || mixerControlIndex >= maximumMixerChannels - 1)
+        return;
+
+    auto outputBus = juce::jlimit(0, mixerBusCount, mixerOutputSelectors[static_cast<std::size_t>(mixerControlIndex)].getSelectedId() - 1);
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        if (stateIndex >= static_cast<int>(compositionStates.size()))
+            return;
+
+        auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+        if (laneIndex >= static_cast<int>(state.grids.size()))
+            return;
+
+        auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+        lane.mixerOutputBus = outputBus;
+        const auto runtimeIndex = stateIndex * maximumGridsPerState + laneIndex;
+        if (runtimeIndex >= 0 && runtimeIndex < firstBusMeterIndex)
+            mixerRuntimeOutputBus[static_cast<std::size_t>(runtimeIndex)].store(outputBus, std::memory_order_relaxed);
+    }
+
+    refreshMixerView();
+    statusLog.append("Lane S"
+                     + juce::String(stateIndex + 1).paddedLeft('0', 2)
+                     + " L"
+                     + juce::String(laneIndex + 1).paddedLeft('0', 2)
+                     + (outputBus <= 0 ? juce::String(" routed to stereo out")
+                                       : " routed to Bus " + juce::String(outputBus)));
+    repaint();
 }
 
 void MainComponent::applyMasterLevel()
 {
     const auto masterIndex = juce::jlimit(0, maximumMixerChannels - 1, masterMixerControlIndex);
     masterLevel = static_cast<float>(mixerLevelSliders[static_cast<std::size_t>(masterIndex)].getValue());
+    mixerRuntimeLevel[static_cast<std::size_t>(masterMeterIndex)].store(juce::jlimit(0.0f, 1.25f, masterLevel), std::memory_order_relaxed);
     embeddedScAudio.setMasterLevel(masterLevel);
+}
+
+void MainComponent::configurePluginHosting()
+{
+    juce::addDefaultFormatsToManager(pluginFormatManager);
+    loadKnownPluginList();
+}
+
+juce::File MainComponent::getPluginListFile() const
+{
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("GridCollider")
+        .getChildFile("known-plugins.xml");
+}
+
+void MainComponent::loadKnownPluginList()
+{
+    const auto file = getPluginListFile();
+    if (! file.existsAsFile())
+        return;
+
+    if (auto xml = juce::parseXML(file))
+        knownPluginList.recreateFromXml(*xml);
+}
+
+void MainComponent::saveKnownPluginList() const
+{
+    if (auto xml = knownPluginList.createXml())
+    {
+        const auto file = getPluginListFile();
+        file.getParentDirectory().createDirectory();
+        xml->writeTo(file);
+    }
+}
+
+void MainComponent::scanAndStoreAvailablePlugins()
+{
+    for (auto* format : pluginFormatManager.getFormats())
+    {
+        if (format == nullptr || ! format->canScanForPlugins())
+            continue;
+
+        juce::PluginDirectoryScanner scanner(knownPluginList,
+                                             *format,
+                                             format->getDefaultLocationsToSearch(),
+                                             true,
+                                             getPluginListFile().getSiblingFile("plugin-scan-deadman.txt"),
+                                             true);
+
+        juce::String scannedName;
+        while (scanner.scanNextFile(true, scannedName))
+        {
+        }
+    }
+
+    knownPluginList.scanFinished();
+    saveKnownPluginList();
+    statusLog.append("Plugin scan complete: " + juce::String(knownPluginList.getNumTypes()) + " known plugins");
+    repaint();
+}
+
+void MainComponent::showMixerPluginChooser(const int channelIndex, const int slotIndex)
+{
+    if (channelIndex < 0 || channelIndex >= maximumMixerChannels || slotIndex < 0 || slotIndex >= 2)
+        return;
+
+    std::vector<juce::PluginDescription> types;
+    for (const auto& description : knownPluginList.getTypes())
+        if (! description.isInstrument)
+            types.push_back(description);
+
+    std::sort(types.begin(), types.end(), [](const auto& a, const auto& b)
+    {
+        return a.name.compareIgnoreCase(b.name) < 0;
+    });
+
+    juce::PopupMenu menu;
+    menu.addItem(1, "Scan AU/VST3 effects");
+    menu.addSeparator();
+    menu.addItem(2, "Clear slot", getMixerPluginSlotName(channelIndex, slotIndex).isNotEmpty());
+    menu.addSeparator();
+
+    for (int index = 0; index < static_cast<int>(types.size()); ++index)
+        menu.addItem(1000 + index,
+                     types[static_cast<std::size_t>(index)].manufacturerName.isNotEmpty()
+                         ? types[static_cast<std::size_t>(index)].manufacturerName + " / " + types[static_cast<std::size_t>(index)].name
+                         : types[static_cast<std::size_t>(index)].name);
+
+    menu.showMenuAsync(juce::PopupMenu::Options(),
+                       [safeThis = juce::Component::SafePointer<MainComponent>(this),
+                        channelIndex,
+                        slotIndex,
+                        types](const int result)
+                       {
+                           if (safeThis == nullptr)
+                               return;
+
+                           if (result == 1)
+                           {
+                               safeThis->scanAndStoreAvailablePlugins();
+                               return;
+                           }
+
+                           if (result == 2)
+                           {
+                               safeThis->clearMixerPluginSlot(channelIndex, slotIndex);
+                               return;
+                           }
+
+                           const auto pluginIndex = result - 1000;
+                           if (pluginIndex >= 0 && pluginIndex < static_cast<int>(types.size()))
+                               safeThis->loadMixerPluginSlot(channelIndex, slotIndex, types[static_cast<std::size_t>(pluginIndex)]);
+                       });
+}
+
+void MainComponent::loadMixerPluginSlot(const int channelIndex,
+                                        const int slotIndex,
+                                        const juce::PluginDescription& description)
+{
+    if (channelIndex < 0 || channelIndex >= maximumMixerChannels || slotIndex < 0 || slotIndex >= 2)
+        return;
+
+    {
+        const juce::ScopedLock lock(mixerPluginLock);
+        auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+        slot.loading = true;
+        slot.name = description.name;
+        slot.identifier = description.createIdentifierString();
+        slot.editorWindow = nullptr;
+        slot.instance = nullptr;
+    }
+
+    statusLog.append("Loading plugin: " + description.name);
+    refreshMixerView();
+
+    pluginFormatManager.createPluginInstanceAsync(description,
+                                                  currentAudioSampleRate,
+                                                  currentAudioBlockSize,
+                                                  [safeThis = juce::Component::SafePointer<MainComponent>(this),
+                                                   channelIndex,
+                                                   slotIndex,
+                                                   name = description.name,
+                                                   identifier = description.createIdentifierString()](std::unique_ptr<juce::AudioPluginInstance> instance,
+                                                                                                      const juce::String& error)
+                                                  {
+                                                      if (safeThis == nullptr)
+                                                          return;
+
+                                                      const juce::ScopedLock lock(safeThis->mixerPluginLock);
+                                                      auto& slot = safeThis->mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+                                                      slot.loading = false;
+
+                                                      if (instance == nullptr)
+                                                      {
+                                                          slot.name.clear();
+                                                          slot.identifier.clear();
+                                                          safeThis->statusLog.append("Plugin failed: " + (error.isNotEmpty() ? error : name));
+                                                          safeThis->refreshMixerView();
+                                                          return;
+                                                      }
+
+                                                      instance->setRateAndBufferSizeDetails(safeThis->currentAudioSampleRate, safeThis->currentAudioBlockSize);
+                                                      instance->prepareToPlay(safeThis->currentAudioSampleRate, safeThis->currentAudioBlockSize);
+                                                      slot.instance = std::move(instance);
+                                                      slot.name = name;
+                                                      slot.identifier = identifier;
+                                                      safeThis->statusLog.append("Loaded plugin: " + name);
+                                                      safeThis->refreshMixerView();
+                                                  });
+}
+
+void MainComponent::clearMixerPluginSlot(const int channelIndex, const int slotIndex)
+{
+    if (channelIndex < 0 || channelIndex >= maximumMixerChannels || slotIndex < 0 || slotIndex >= 2)
+        return;
+
+    const juce::ScopedLock lock(mixerPluginLock);
+    auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+    if (slot.instance != nullptr)
+        slot.instance->releaseResources();
+    slot.editorWindow = nullptr;
+    slot.instance = nullptr;
+    slot.name.clear();
+    slot.identifier.clear();
+    slot.loading = false;
+    refreshMixerView();
+}
+
+void MainComponent::showMixerPluginEditor(const int channelIndex, const int slotIndex)
+{
+    if (channelIndex < 0 || channelIndex >= maximumMixerChannels || slotIndex < 0 || slotIndex >= 2)
+        return;
+
+    const juce::ScopedLock lock(mixerPluginLock);
+    auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+    if (slot.instance == nullptr)
+        return;
+
+    if (slot.editorWindow != nullptr)
+    {
+        slot.editorWindow->setVisible(true);
+        slot.editorWindow->toFront(true);
+        return;
+    }
+
+    struct PluginEditorWindow final : juce::DocumentWindow
+    {
+        PluginEditorWindow(const juce::String& title, std::unique_ptr<juce::AudioProcessorEditor> editor)
+            : juce::DocumentWindow(title,
+                                   juce::Colour::fromRGB(32, 33, 34),
+                                   juce::DocumentWindow::closeButton),
+              ownedEditor(std::move(editor))
+        {
+            setUsingNativeTitleBar(true);
+            setResizable(true, true);
+            setContentOwned(ownedEditor.release(), true);
+            centreWithSize(juce::jmax(420, getWidth()), juce::jmax(280, getHeight()));
+            setVisible(true);
+        }
+
+        void closeButtonPressed() override
+        {
+            setVisible(false);
+        }
+
+        std::unique_ptr<juce::AudioProcessorEditor> ownedEditor;
+    };
+
+    std::unique_ptr<juce::AudioProcessorEditor> editor(slot.instance->hasEditor()
+                                                           ? slot.instance->createEditor()
+                                                           : new juce::GenericAudioProcessorEditor(*slot.instance));
+    slot.editorWindow = std::make_unique<PluginEditorWindow>(slot.name, std::move(editor));
+}
+
+void MainComponent::releaseMixerPlugins()
+{
+    const juce::ScopedLock lock(mixerPluginLock);
+    for (auto& channelSlots : mixerPluginSlots)
+    {
+        for (auto& slot : channelSlots)
+        {
+            slot.editorWindow = nullptr;
+            if (slot.instance != nullptr)
+                slot.instance->releaseResources();
+            slot.instance = nullptr;
+            slot.loading = false;
+        }
+    }
+}
+
+void MainComponent::processMixerPluginSlots(juce::AudioBuffer<float>& buffer, const int channelIndex)
+{
+    if (buffer.getNumSamples() <= 0 || channelIndex < 0 || channelIndex >= maximumMixerChannels)
+        return;
+
+    const juce::ScopedTryLock lock(mixerPluginLock);
+    if (! lock.isLocked())
+        return;
+
+    mixerPluginMidiBuffer.clear();
+    auto& slots = mixerPluginSlots[static_cast<std::size_t>(channelIndex)];
+    for (auto& slot : slots)
+    {
+        if (slot.instance == nullptr)
+            continue;
+
+        slot.instance->processBlock(buffer, mixerPluginMidiBuffer);
+        mixerPluginMidiBuffer.clear();
+    }
+}
+
+void MainComponent::syncMixerRuntimeState()
+{
+    for (int index = 0; index < maximumMixerChannels; ++index)
+    {
+        mixerRuntimeLevel[static_cast<std::size_t>(index)].store(1.0f, std::memory_order_relaxed);
+        mixerRuntimePan[static_cast<std::size_t>(index)].store(0.0f, std::memory_order_relaxed);
+        mixerRuntimeOutputBus[static_cast<std::size_t>(index)].store(0, std::memory_order_relaxed);
+        mixerRuntimeMuted[static_cast<std::size_t>(index)].store(false, std::memory_order_relaxed);
+        mixerRuntimeSoloed[static_cast<std::size_t>(index)].store(false, std::memory_order_relaxed);
+        mixerRuntimeExists[static_cast<std::size_t>(index)].store(false, std::memory_order_relaxed);
+    }
+
+    bool hasSoloedLane = false;
+    bool hasSoloedBus = false;
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+        for (int stateIndex = 0; stateIndex < static_cast<int>(compositionStates.size()); ++stateIndex)
+        {
+            const auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+            for (int laneIndex = 0; laneIndex < static_cast<int>(state.grids.size()); ++laneIndex)
+            {
+                const auto mixerIndex = stateIndex * maximumGridsPerState + laneIndex;
+                if (mixerIndex < 0 || mixerIndex >= firstBusMeterIndex)
+                    continue;
+
+                const auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+                mixerRuntimeLevel[static_cast<std::size_t>(mixerIndex)].store(juce::jlimit(0.0f, 1.25f, lane.mixerLevel), std::memory_order_relaxed);
+                mixerRuntimePan[static_cast<std::size_t>(mixerIndex)].store(juce::jlimit(-1.0f, 1.0f, lane.mixerPan), std::memory_order_relaxed);
+                mixerRuntimeOutputBus[static_cast<std::size_t>(mixerIndex)].store(juce::jlimit(0, mixerBusCount, lane.mixerOutputBus), std::memory_order_relaxed);
+                mixerRuntimeMuted[static_cast<std::size_t>(mixerIndex)].store(lane.mixerMuted, std::memory_order_relaxed);
+                mixerRuntimeSoloed[static_cast<std::size_t>(mixerIndex)].store(lane.mixerSoloed, std::memory_order_relaxed);
+                mixerRuntimeExists[static_cast<std::size_t>(mixerIndex)].store(true, std::memory_order_relaxed);
+                hasSoloedLane = hasSoloedLane || lane.mixerSoloed;
+            }
+        }
+
+        for (int busIndex = 0; busIndex < mixerBusCount; ++busIndex)
+        {
+            const auto mixerIndex = firstBusMeterIndex + busIndex;
+            const auto& bus = mixerBuses[static_cast<std::size_t>(busIndex)];
+            mixerRuntimeLevel[static_cast<std::size_t>(mixerIndex)].store(juce::jlimit(0.0f, 1.25f, bus.level), std::memory_order_relaxed);
+            mixerRuntimePan[static_cast<std::size_t>(mixerIndex)].store(juce::jlimit(-1.0f, 1.0f, bus.pan), std::memory_order_relaxed);
+            mixerRuntimeMuted[static_cast<std::size_t>(mixerIndex)].store(bus.muted, std::memory_order_relaxed);
+            mixerRuntimeSoloed[static_cast<std::size_t>(mixerIndex)].store(bus.soloed, std::memory_order_relaxed);
+            mixerRuntimeExists[static_cast<std::size_t>(mixerIndex)].store(true, std::memory_order_relaxed);
+            hasSoloedBus = hasSoloedBus || bus.soloed;
+        }
+    }
+
+    mixerRuntimeLevel[static_cast<std::size_t>(masterMeterIndex)].store(juce::jlimit(0.0f, 1.25f, masterLevel), std::memory_order_relaxed);
+    mixerRuntimeExists[static_cast<std::size_t>(masterMeterIndex)].store(true, std::memory_order_relaxed);
+    mixerRuntimeHasSoloedLane.store(hasSoloedLane, std::memory_order_release);
+    mixerRuntimeHasSoloedBus.store(hasSoloedBus, std::memory_order_release);
+}
+
+void MainComponent::mixStemAudioToOutput(juce::AudioBuffer<float>& output)
+{
+    output.clear();
+
+    const auto samples = output.getNumSamples();
+    if (samples <= 0)
+        return;
+
+    if (scStemBuffer.getNumChannels() < firstBusMeterIndex * 2 || scStemBuffer.getNumSamples() < samples)
+        scStemBuffer.setSize(firstBusMeterIndex * 2, samples, false, true, true);
+    if (laneScratchBuffer.getNumSamples() < samples)
+        laneScratchBuffer.setSize(2, samples, false, true, true);
+    if (busStemBuffer.getNumSamples() < samples)
+        busStemBuffer.setSize(mixerBusCount * 2, samples, false, true, true);
+
+    scStemBuffer.clear();
+    busStemBuffer.clear();
+    embeddedScAudio.renderRaw(scStemBuffer);
+
+    const auto hasSoloedLane = mixerRuntimeHasSoloedLane.load(std::memory_order_acquire);
+    const auto hasSoloedBus = mixerRuntimeHasSoloedBus.load(std::memory_order_acquire);
+
+    auto addPannedStereo = [samples](juce::AudioBuffer<float>& destination,
+                                     const juce::AudioBuffer<float>& source,
+                                     const float level,
+                                     const float pan)
+    {
+        const auto leftGain = level * (pan <= 0.0f ? 1.0f : 1.0f - pan);
+        const auto rightGain = level * (pan >= 0.0f ? 1.0f : 1.0f + pan);
+        destination.addFrom(0, 0, source, 0, 0, samples, leftGain);
+        if (destination.getNumChannels() > 1)
+            destination.addFrom(1, 0, source, 1, 0, samples, rightGain);
+    };
+
+    for (int laneIndex = 0; laneIndex < firstBusMeterIndex; ++laneIndex)
+    {
+        if (! mixerRuntimeExists[static_cast<std::size_t>(laneIndex)].load(std::memory_order_relaxed))
+            continue;
+
+        const auto sourceLeft = laneIndex * 2;
+        const auto sourceRight = sourceLeft + 1;
+        if (sourceRight >= scStemBuffer.getNumChannels())
+            continue;
+
+        laneScratchBuffer.clear();
+        laneScratchBuffer.copyFrom(0, 0, scStemBuffer, sourceLeft, 0, samples);
+        laneScratchBuffer.copyFrom(1, 0, scStemBuffer, sourceRight, 0, samples);
+        processMixerPluginSlots(laneScratchBuffer, laneIndex);
+
+        const auto muted = mixerRuntimeMuted[static_cast<std::size_t>(laneIndex)].load(std::memory_order_relaxed);
+        const auto soloed = mixerRuntimeSoloed[static_cast<std::size_t>(laneIndex)].load(std::memory_order_relaxed);
+        if (muted || (hasSoloedLane && ! soloed))
+            continue;
+
+        const auto level = mixerRuntimeLevel[static_cast<std::size_t>(laneIndex)].load(std::memory_order_relaxed);
+        const auto pan = mixerRuntimePan[static_cast<std::size_t>(laneIndex)].load(std::memory_order_relaxed);
+        const auto outputBus = mixerRuntimeOutputBus[static_cast<std::size_t>(laneIndex)].load(std::memory_order_relaxed);
+
+        auto peak = laneScratchBuffer.getMagnitude(0, samples) * level;
+        peak = juce::jmax(peak, laneScratchBuffer.getMagnitude(1, samples) * level);
+        if (peak > 0.0f)
+        {
+            auto& meter = mixerMeterPeaks[static_cast<std::size_t>(laneIndex)];
+            const auto current = meter.load(std::memory_order_relaxed);
+            if (peak > current)
+                meter.store(juce::jlimit(0.0f, 1.0f, peak), std::memory_order_relaxed);
+        }
+
+        if (outputBus > 0 && outputBus <= mixerBusCount)
+        {
+            juce::AudioBuffer<float> busPair(busStemBuffer.getArrayOfWritePointers() + (outputBus - 1) * 2, 2, samples);
+            addPannedStereo(busPair, laneScratchBuffer, level, pan);
+        }
+        else if (! hasSoloedBus)
+        {
+            addPannedStereo(output, laneScratchBuffer, level, pan);
+        }
+    }
+
+    for (int busIndex = 0; busIndex < mixerBusCount; ++busIndex)
+    {
+        const auto mixerIndex = firstBusMeterIndex + busIndex;
+        juce::AudioBuffer<float> busPair(busStemBuffer.getArrayOfWritePointers() + busIndex * 2, 2, samples);
+        processMixerPluginSlots(busPair, mixerIndex);
+
+        const auto muted = mixerRuntimeMuted[static_cast<std::size_t>(mixerIndex)].load(std::memory_order_relaxed);
+        const auto soloed = mixerRuntimeSoloed[static_cast<std::size_t>(mixerIndex)].load(std::memory_order_relaxed);
+        if (muted || (hasSoloedBus && ! soloed))
+            continue;
+
+        const auto level = mixerRuntimeLevel[static_cast<std::size_t>(mixerIndex)].load(std::memory_order_relaxed);
+        const auto pan = mixerRuntimePan[static_cast<std::size_t>(mixerIndex)].load(std::memory_order_relaxed);
+
+        auto peak = busPair.getMagnitude(0, samples) * level;
+        peak = juce::jmax(peak, busPair.getMagnitude(1, samples) * level);
+        if (peak > 0.0f)
+        {
+            auto& meter = mixerMeterPeaks[static_cast<std::size_t>(mixerIndex)];
+            const auto current = meter.load(std::memory_order_relaxed);
+            if (peak > current)
+                meter.store(juce::jlimit(0.0f, 1.0f, peak), std::memory_order_relaxed);
+        }
+
+        addPannedStereo(output, busPair, level, pan);
+    }
+
+    processMixerPluginSlots(output, masterMeterIndex);
+
+    float peak = 0.0f;
+    for (int channel = 0; channel < output.getNumChannels(); ++channel)
+        peak = juce::jmax(peak, output.getMagnitude(channel, 0, samples));
+
+    auto gain = mixerRuntimeLevel[static_cast<std::size_t>(masterMeterIndex)].load(std::memory_order_relaxed);
+    if (peak * gain > 0.92f)
+        gain = 0.92f / juce::jmax(peak, 0.000001f);
+
+    output.applyGain(gain);
+}
+
+juce::String MainComponent::getMixerPluginSlotName(const int channelIndex, const int slotIndex) const
+{
+    if (channelIndex < 0 || channelIndex >= maximumMixerChannels || slotIndex < 0 || slotIndex >= 2)
+        return {};
+
+    const juce::ScopedLock lock(mixerPluginLock);
+    const auto& slot = mixerPluginSlots[static_cast<std::size_t>(channelIndex)][static_cast<std::size_t>(slotIndex)];
+    if (slot.loading)
+        return "LOAD";
+    return slot.name;
 }
 
 void MainComponent::applyLaneMixToEvents(std::vector<InternalEvent>& events, const CompositionGrid& lane, const float transitionGain) const
 {
-    const auto level = juce::jlimit(0.0f, 1.25f, lane.mixerLevel * transitionGain);
+    const auto level = juce::jlimit(0.0f, 1.0f, transitionGain);
 
     for (auto& event : events)
     {
@@ -5538,6 +6294,30 @@ void MainComponent::applyLaneMixToEvents(std::vector<InternalEvent>& events, con
         {
             typed.fields.velocity = juce::jlimit(0.0f, 1.0f, typed.fields.velocity * level);
             typed.fields.parameters["pan"] = juce::String(lane.mixerPan, 3);
+        }, event);
+    }
+}
+
+void MainComponent::applyBusMixToEvents(std::vector<InternalEvent>& events, const int busIndex) const
+{
+    if (busIndex <= 0 || busIndex > mixerBusCount)
+        return;
+
+    const auto& bus = mixerBuses[static_cast<std::size_t>(busIndex - 1)];
+    const auto level = juce::jlimit(0.0f, 1.25f, bus.level);
+
+    for (auto& event : events)
+    {
+        std::visit([&bus, level, busIndex](auto& typed)
+        {
+            typed.fields.velocity = juce::jlimit(0.0f, 1.0f, typed.fields.velocity * level);
+
+            auto pan = bus.pan;
+            if (const auto iter = typed.fields.parameters.find("pan"); iter != typed.fields.parameters.end())
+                pan = juce::jlimit(-1.0f, 1.0f, iter->second.getFloatValue() + bus.pan);
+
+            typed.fields.parameters["pan"] = juce::String(pan, 3);
+            typed.fields.parameters["bus"] = juce::String(busIndex);
         }, event);
     }
 }
@@ -6793,6 +7573,10 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
     {
         return lane.mixerSoloed;
     });
+    const auto hasSoloedBus = std::any_of(mixerBuses.begin(), mixerBuses.end(), [](const MixerBus& bus)
+    {
+        return bus.soloed;
+    });
 
     for (int index = 0; index < static_cast<int>(state.grids.size()); ++index)
     {
@@ -6814,11 +7598,35 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
         if (evaluation.grid.width > 0 && evaluation.grid.height > 0)
             grid.snapshot = evaluation.grid;
 
-        const auto laneAudible = ! grid.mixerMuted && (! hasSoloedLane || grid.mixerSoloed);
+        const auto outputBus = juce::jlimit(0, mixerBusCount, grid.mixerOutputBus);
+        auto busAudible = true;
+        if (outputBus > 0)
+        {
+            const auto& bus = mixerBuses[static_cast<std::size_t>(outputBus - 1)];
+            busAudible = ! bus.muted && (! hasSoloedBus || bus.soloed);
+        }
+        else if (hasSoloedBus)
+        {
+            busAudible = false;
+        }
+
+        const auto laneAudible = ! grid.mixerMuted && (! hasSoloedLane || grid.mixerSoloed) && busAudible;
         if (laneAudible)
+        {
+            const auto stemOutput = (activeStateIndex * maximumGridsPerState + index) * 2;
+            for (auto& event : evaluation.events)
+            {
+                std::visit([stemOutput](auto& typed)
+                {
+                    typed.fields.parameters["out"] = juce::String(stemOutput);
+                }, event);
+            }
             applyLaneMixToEvents(evaluation.events, grid, transitionGain);
+        }
         else
+        {
             evaluation.events.clear();
+        }
 
         float lanePeak = 0.0f;
         for (const auto& event : evaluation.events)
@@ -6838,6 +7646,18 @@ GridEvaluation MainComponent::evaluateActiveState(const TransportEngine::TickCon
                 const auto current = meter.load(std::memory_order_relaxed);
                 if (lanePeak > current)
                     meter.store(juce::jlimit(0.0f, 1.0f, lanePeak), std::memory_order_relaxed);
+            }
+
+            if (outputBus > 0)
+            {
+                const auto busMeterIndex = firstBusMeterIndex + outputBus - 1;
+                if (busMeterIndex >= 0 && busMeterIndex < masterMeterIndex)
+                {
+                    auto& meter = mixerMeterPeaks[static_cast<std::size_t>(busMeterIndex)];
+                    const auto current = meter.load(std::memory_order_relaxed);
+                    if (lanePeak > current)
+                        meter.store(juce::jlimit(0.0f, 1.0f, lanePeak), std::memory_order_relaxed);
+                }
             }
         }
 

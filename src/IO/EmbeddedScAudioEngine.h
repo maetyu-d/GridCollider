@@ -22,6 +22,7 @@ public:
     bool prepare(double sampleRate, int maximumBlockSize, int outputChannels);
     void release() noexcept;
     void render(juce::AudioBuffer<float>& output);
+    void renderRaw(juce::AudioBuffer<float>& output);
     void renderOffline(juce::AudioBuffer<float>& output);
 
     void enqueue(const std::vector<InternalEvent>& events);

@@ -67,7 +67,14 @@ target_compile_definitions(GridCollider
     PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        JUCE_PLUGINHOST_VST3=1
         GRIDCOLLIDER_ALCHEMY_SC_ROOT="/Users/user/Documents/weld2/ChucK_weld_engine")
+
+if (APPLE)
+    target_compile_definitions(GridCollider PRIVATE JUCE_PLUGINHOST_AU=1)
+else()
+    target_compile_definitions(GridCollider PRIVATE JUCE_PLUGINHOST_AU=0)
+endif()
 
 if (EXISTS "/Users/user/Documents/weld2/ChucK_weld_engine/third_party/supercollider/include/server/SC_WorldOptions.h")
     target_include_directories(GridCollider
@@ -81,6 +88,7 @@ endif()
 target_link_libraries(GridCollider
     PRIVATE
         juce::juce_audio_utils
+        juce::juce_audio_processors
         juce::juce_gui_basics
         juce::juce_gui_extra
         juce::juce_osc

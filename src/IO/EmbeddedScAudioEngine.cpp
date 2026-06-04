@@ -434,7 +434,7 @@ struct EmbeddedScAudioEngine::Impl
 
         currentSampleRate = sampleRate;
         maxBlockSize = juce::jmax(maximumBlockSize, hostRenderQuantum);
-        numOutputChannels = juce::jlimit(1, 8, outputChannels);
+        numOutputChannels = juce::jlimit(1, 512, outputChannels);
         interleavedOutput.assign(static_cast<std::size_t>(maxBlockSize + hostRenderQuantum) * static_cast<std::size_t>(numOutputChannels), 0.0f);
 
         worldOptions = WorldOptions();
@@ -484,7 +484,18 @@ struct EmbeddedScAudioEngine::Impl
         if (! ready.load(std::memory_order_acquire) || world == nullptr)
             return;
 
-        renderUnlocked(output);
+        renderUnlocked(output, true);
+    }
+
+    void renderRaw(juce::AudioBuffer<float>& output)
+    {
+        const juce::ScopedLock lock(engineLock);
+        output.clear();
+
+        if (! ready.load(std::memory_order_acquire) || world == nullptr)
+            return;
+
+        renderUnlocked(output, false);
     }
 
     void renderOffline(juce::AudioBuffer<float>& output)
@@ -495,7 +506,7 @@ struct EmbeddedScAudioEngine::Impl
         if (! ready.load(std::memory_order_acquire) || world == nullptr)
             return;
 
-        renderUnlocked(output);
+        renderUnlocked(output, true);
     }
 
     void enqueue(const std::vector<InternalEvent>& events)
@@ -605,7 +616,7 @@ struct EmbeddedScAudioEngine::Impl
     }
 
 private:
-    void renderUnlocked(juce::AudioBuffer<float>& output)
+    void renderUnlocked(juce::AudioBuffer<float>& output, const bool applyMasterProcessing)
     {
         const auto frames = output.getNumSamples();
         if (frames <= 0 || frames > maxBlockSize)
@@ -629,8 +640,8 @@ private:
                 peak = juce::jmax(peak, std::abs(interleavedOutput[static_cast<std::size_t>(frame * numOutputChannels + channel)]));
         }
 
-        auto outputGain = juce::jlimit(0.0f, 1.25f, masterLevel);
-        if (peak * outputGain > limiterCeiling)
+        auto outputGain = applyMasterProcessing ? juce::jlimit(0.0f, 1.25f, masterLevel) : 1.0f;
+        if (applyMasterProcessing && peak * outputGain > limiterCeiling)
             outputGain = limiterCeiling / juce::jmax(peak, 0.000001f);
 
         for (int channel = 0; channel < output.getNumChannels(); ++channel)
@@ -641,7 +652,9 @@ private:
             for (int frame = 0; frame < frames; ++frame)
             {
                 const auto sample = interleavedOutput[static_cast<std::size_t>(frame * numOutputChannels + sourceChannel)] * outputGain;
-                dst[frame] = std::isfinite(sample) ? juce::jlimit(-outputLimit, outputLimit, sample) : 0.0f;
+                dst[frame] = std::isfinite(sample)
+                                 ? (applyMasterProcessing ? juce::jlimit(-outputLimit, outputLimit, sample) : sample)
+                                 : 0.0f;
             }
         }
     }
@@ -807,6 +820,9 @@ private:
         const auto duration = secondsForTicks(fields.durationTicks, bpm.load(std::memory_order_relaxed));
         const auto velocity = juce::jlimit(0.0f, 1.0f, fields.velocity);
         const auto level = levelFor(synth);
+        const auto out = fields.parameters.count("out") > 0
+                             ? juce::jlimit(0, numOutputChannels - 2, fields.parameters.at("out").getIntValue())
+                             : masterBus;
         auto pan = panForX(fields.sourceCell.column);
 
         if (const auto iter = fields.parameters.find("pan"); iter != fields.parameters.end())
@@ -820,7 +836,7 @@ private:
                                  OscArgument::integer(1),
                                  OscArgument::integer(sourceGroupId),
                                  OscArgument::string("out"),
-                                 OscArgument::floating(static_cast<float>(masterBus)),
+                                 OscArgument::floating(static_cast<float>(out)),
                                  OscArgument::string("pitch"),
                                  OscArgument::floating(static_cast<float>(juce::jlimit(0, 127, fields.pitch))),
                                  OscArgument::string("amp"),
@@ -837,6 +853,9 @@ private:
         const auto synth = synthForName(trigger);
         const auto nodeId = nextNodeId++;
         const auto level = levelFor(synth);
+        const auto out = event.fields.parameters.count("out") > 0
+                             ? juce::jlimit(0, numOutputChannels - 2, event.fields.parameters.at("out").getIntValue())
+                             : masterBus;
         auto pan = panForX(event.fields.sourceCell.column);
 
         if (const auto iter = event.fields.parameters.find("pan"); iter != event.fields.parameters.end())
@@ -850,7 +869,7 @@ private:
                                  OscArgument::integer(1),
                                  OscArgument::integer(sourceGroupId),
                                  OscArgument::string("out"),
-                                 OscArgument::floating(static_cast<float>(masterBus)),
+                                 OscArgument::floating(static_cast<float>(out)),
                                  OscArgument::string("pitch"),
                                  OscArgument::floating(48.0f),
                                  OscArgument::string("amp"),
@@ -1125,6 +1144,7 @@ private:
     }
     void release() noexcept {}
     void render(juce::AudioBuffer<float>& output) { output.clear(); }
+    void renderRaw(juce::AudioBuffer<float>& output) { output.clear(); }
     void renderOffline(juce::AudioBuffer<float>& output) { output.clear(); }
     void enqueue(const std::vector<InternalEvent>&) {}
     void setTransport(double, std::uint64_t, bool) {}
@@ -1159,6 +1179,11 @@ void EmbeddedScAudioEngine::release() noexcept
 void EmbeddedScAudioEngine::render(juce::AudioBuffer<float>& output)
 {
     impl->render(output);
+}
+
+void EmbeddedScAudioEngine::renderRaw(juce::AudioBuffer<float>& output)
+{
+    impl->renderRaw(output);
 }
 
 void EmbeddedScAudioEngine::renderOffline(juce::AudioBuffer<float>& output)
