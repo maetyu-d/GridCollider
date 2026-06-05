@@ -1997,6 +1997,21 @@ void MainComponent::resized()
         auditionControls.removeFromLeft(10);
         auditionButton.setBounds(auditionControls.removeFromLeft(104));
 
+        area.removeFromTop(12);
+        auto readinessArea = area.removeFromTop(64);
+        audioReadinessLabel.setBounds(readinessArea.removeFromLeft(84));
+        auto readinessStatusArea = readinessArea.removeFromLeft(juce::jmin(780, readinessArea.getWidth()));
+        audioDeviceStatusLabel.setBounds(readinessStatusArea.removeFromTop(20));
+        embeddedScStatusLabel.setBounds(readinessStatusArea.removeFromTop(20));
+        pluginScanStatusLabel.setBounds(readinessStatusArea.removeFromTop(20));
+        readinessArea.removeFromLeft(12);
+        const auto scanButtonWidth = 118;
+        rescanPluginsButton.setBounds(readinessArea.removeFromLeft(scanButtonWidth));
+        readinessArea.removeFromLeft(8);
+        clearPluginCacheButton.setBounds(readinessArea.removeFromLeft(scanButtonWidth));
+        readinessArea.removeFromLeft(8);
+        failedPluginsButton.setBounds(readinessArea.removeFromLeft(82));
+
         area.removeFromTop(16);
         auto columns = area;
         auto mapArea = columns.removeFromLeft(360);
@@ -2553,6 +2568,9 @@ void MainComponent::timerCallback()
     if (mixerViewVisible && metersChanged)
         refreshMixerMeters();
 
+    if (instrumentsViewVisible)
+        refreshAudioReadinessStatus();
+
     if (exportCaptureComplete.exchange(false, std::memory_order_acq_rel))
         finishRealtimeWavExport();
 }
@@ -2589,6 +2607,11 @@ void MainComponent::prepareToPlay(const int samplesPerBlockExpected, const doubl
         statusLog.append("Embedded SuperCollider unavailable: " + embeddedScAudio.getLastError());
     }
 
+    juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<MainComponent>(this)]
+    {
+        if (safeThis != nullptr)
+            safeThis->refreshAudioReadinessStatus();
+    });
     repaint();
 }
 
@@ -2661,6 +2684,11 @@ void MainComponent::releaseResources()
 {
     releaseMixerPluginResources();
     embeddedScAudio.release();
+    juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<MainComponent>(this)]
+    {
+        if (safeThis != nullptr)
+            safeThis->refreshAudioReadinessStatus();
+    });
 }
 
 void MainComponent::configureOscControls()
@@ -5936,6 +5964,13 @@ void MainComponent::configureInstrumentView()
                              static_cast<juce::Component*>(&compileInstrumentButton),
                              static_cast<juce::Component*>(&applyInstrumentMapButton),
                              static_cast<juce::Component*>(&instrumentAuditionLabel),
+                             static_cast<juce::Component*>(&audioReadinessLabel),
+                             static_cast<juce::Component*>(&audioDeviceStatusLabel),
+                             static_cast<juce::Component*>(&embeddedScStatusLabel),
+                             static_cast<juce::Component*>(&pluginScanStatusLabel),
+                             static_cast<juce::Component*>(&rescanPluginsButton),
+                             static_cast<juce::Component*>(&clearPluginCacheButton),
+                             static_cast<juce::Component*>(&failedPluginsButton),
                              static_cast<juce::Component*>(&auditionPitchEditor),
                              static_cast<juce::Component*>(&auditionVelocityEditor),
                              static_cast<juce::Component*>(&auditionDurationEditor),
@@ -5961,6 +5996,7 @@ void MainComponent::configureInstrumentView()
     instrumentCodeLabel.setText("SynthDef", juce::dontSendNotification);
     instrumentMapLabel.setText("Channel Map", juce::dontSendNotification);
     instrumentAuditionLabel.setText("Audition", juce::dontSendNotification);
+    audioReadinessLabel.setText("Audio", juce::dontSendNotification);
     newInstrumentButton.setButtonText("New");
     duplicateInstrumentButton.setButtonText("Duplicate");
     deleteInstrumentButton.setButtonText("Delete");
@@ -5968,6 +6004,9 @@ void MainComponent::configureInstrumentView()
     saveInstrumentButton.setButtonText("Save");
     compileInstrumentButton.setButtonText("Compile");
     applyInstrumentMapButton.setButtonText("Apply Map");
+    rescanPluginsButton.setButtonText("Scan Plugins");
+    clearPluginCacheButton.setButtonText("Clear Cache");
+    failedPluginsButton.setButtonText("Failed");
     auditionButton.setButtonText("Audition");
     instrumentNameEditor.setSelectAllWhenFocused(true);
     auditionPitchEditor.setText("60", juce::dontSendNotification);
@@ -6008,6 +6047,9 @@ void MainComponent::configureInstrumentView()
     saveInstrumentButton.onClick = [this] { saveSelectedInstrument(); };
     compileInstrumentButton.onClick = [this] { compileSelectedUserInstrument(); };
     applyInstrumentMapButton.onClick = [this] { applyChannelInstrumentEditors(); };
+    rescanPluginsButton.onClick = [this] { scanAndStoreAvailablePlugins(); };
+    clearPluginCacheButton.onClick = [this] { clearPluginScanCache(); };
+    failedPluginsButton.onClick = [this] { showFailedPluginList(); };
     auditionButton.onClick = [this] { auditionSelectedInstrument(); };
     auditionPitchEditor.onReturnKey = [this] { auditionSelectedInstrument(); };
     auditionVelocityEditor.onReturnKey = [this] { auditionSelectedInstrument(); };
@@ -6049,11 +6091,16 @@ void MainComponent::styleInstrumentView()
     const auto text = lewittInk();
     const auto outline = lewittLine().withAlpha(0.62f);
 
-    for (auto* label : { &instrumentViewTitleLabel, &instrumentCodeLabel, &instrumentMapLabel, &instrumentUsedByLabel, &instrumentAuditionLabel })
+    for (auto* label : { &instrumentViewTitleLabel, &instrumentCodeLabel, &instrumentMapLabel, &instrumentUsedByLabel,
+                         &instrumentAuditionLabel, &audioReadinessLabel, &audioDeviceStatusLabel,
+                         &embeddedScStatusLabel, &pluginScanStatusLabel })
     {
         label->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), label == &instrumentViewTitleLabel ? 20.0f : 13.0f, juce::Font::bold));
         label->setColour(juce::Label::textColourId, text);
     }
+    for (auto* label : { &audioDeviceStatusLabel, &embeddedScStatusLabel, &pluginScanStatusLabel })
+        label->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
+
     instrumentUsedByLabel.setJustificationType(juce::Justification::centredRight);
     instrumentUsedByLabel.setColour(juce::Label::textColourId, text.withAlpha(0.72f));
 
@@ -6064,7 +6111,9 @@ void MainComponent::styleInstrumentView()
         label.setColour(juce::Label::textColourId, text.withAlpha(0.76f));
     }
 
-    for (auto* button : { &newInstrumentButton, &duplicateInstrumentButton, &deleteInstrumentButton, &resetInstrumentButton, &saveInstrumentButton, &compileInstrumentButton, &applyInstrumentMapButton, &auditionButton })
+    for (auto* button : { &newInstrumentButton, &duplicateInstrumentButton, &deleteInstrumentButton, &resetInstrumentButton,
+                          &saveInstrumentButton, &compileInstrumentButton, &applyInstrumentMapButton, &auditionButton,
+                          &rescanPluginsButton, &clearPluginCacheButton, &failedPluginsButton })
     {
         button->setColour(juce::TextButton::buttonColourId, panel);
         button->setColour(juce::TextButton::buttonOnColourId, lewittBlue().withAlpha(0.86f));
@@ -6297,6 +6346,7 @@ void MainComponent::refreshInstrumentView()
     saveInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
     compileInstrumentButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
     auditionButton.setEnabled(selectedInstrumentLaneReferenceIndex >= 0 || selectedDefaultInstrumentIndex >= 0 || selectedUserInstrumentIndex >= 0);
+    refreshAudioReadinessStatus();
     updatingInstrumentView = false;
 }
 
@@ -6898,6 +6948,54 @@ void MainComponent::saveKnownPluginList() const
     }
 }
 
+juce::String MainComponent::getAudioDeviceStatusText() const
+{
+    if (auto* device = deviceManager.getCurrentAudioDevice())
+    {
+        return "device: " + device->getName()
+             + "  "
+             + juce::String(currentAudioSampleRate, 0)
+             + " Hz / "
+             + juce::String(currentAudioBlockSize)
+             + " samples";
+    }
+
+    return "device: none selected";
+}
+
+void MainComponent::refreshAudioReadinessStatus()
+{
+    const auto callbacks = audioCallbackCounter.load(std::memory_order_relaxed);
+    const auto masterPeak = mixerMeterDisplay[static_cast<std::size_t>(masterMeterIndex)];
+    const auto audioOk = deviceManager.getCurrentAudioDevice() != nullptr && callbacks > 0;
+    const auto scReady = embeddedScAudio.isReady();
+    const auto pluginCount = knownPluginList.getNumTypes();
+    const auto failedCount = knownPluginList.getBlacklistedFiles().size();
+
+    audioDeviceStatusLabel.setText((audioOk ? "ok  " : "check  ") + getAudioDeviceStatusText()
+                                       + "  callbacks "
+                                       + juce::String(static_cast<juce::int64>(callbacks))
+                                       + "  out "
+                                       + juce::String(masterPeak, 2),
+                                   juce::dontSendNotification);
+    embeddedScStatusLabel.setText(scReady
+                                      ? "ok  embedded SuperCollider ready"
+                                      : "check  embedded SuperCollider unavailable: " + embeddedScAudio.getLastError(),
+                                  juce::dontSendNotification);
+    pluginScanStatusLabel.setText("plugins: "
+                                      + juce::String(pluginCount)
+                                      + " stored"
+                                      + (failedCount > 0 ? "  failed " + juce::String(failedCount) : "  failed 0"),
+                                  juce::dontSendNotification);
+
+    const auto warning = juce::Colour::fromRGB(255, 184, 64);
+    const auto danger = juce::Colour::fromRGB(255, 89, 72);
+    audioDeviceStatusLabel.setColour(juce::Label::textColourId, (audioOk ? lewittGreen() : warning).withAlpha(0.92f));
+    embeddedScStatusLabel.setColour(juce::Label::textColourId, (scReady ? lewittGreen() : danger).withAlpha(0.92f));
+    pluginScanStatusLabel.setColour(juce::Label::textColourId, pluginCount > 0 ? lewittBlue().withAlpha(0.92f) : warning.withAlpha(0.92f));
+    failedPluginsButton.setEnabled(failedCount > 0);
+}
+
 juce::var MainComponent::serialiseMixerPluginSlots() const
 {
     juce::Array<juce::var> channels;
@@ -6982,6 +7080,8 @@ void MainComponent::restoreMixerPluginSlots(const juce::var& value)
 
 void MainComponent::scanAndStoreAvailablePlugins()
 {
+    statusLog.append("Scanning AU/VST3 effects...");
+
     for (auto* format : pluginFormatManager.getFormats())
     {
         if (format == nullptr || ! format->canScanForPlugins())
@@ -7003,7 +7103,43 @@ void MainComponent::scanAndStoreAvailablePlugins()
     knownPluginList.scanFinished();
     saveKnownPluginList();
     statusLog.append("Plugin scan complete: " + juce::String(knownPluginList.getNumTypes()) + " known plugins");
+    refreshAudioReadinessStatus();
     repaint();
+}
+
+void MainComponent::clearPluginScanCache()
+{
+    knownPluginList.clear();
+
+    const auto pluginListFile = getPluginListFile();
+    pluginListFile.deleteFile();
+    pluginListFile.getSiblingFile("plugin-scan-deadman.txt").deleteFile();
+
+    statusLog.append("Plugin scan cache cleared");
+    refreshAudioReadinessStatus();
+    refreshMixerView();
+    repaint();
+}
+
+void MainComponent::showFailedPluginList()
+{
+    const auto failed = knownPluginList.getBlacklistedFiles();
+
+    if (failed.isEmpty())
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                               "Failed Plugins",
+                                               "No failed plugins are stored.");
+        return;
+    }
+
+    juce::String message;
+    for (const auto& item : failed)
+        message += item + "\n";
+
+    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                           "Failed Plugins",
+                                           message.trim());
 }
 
 void MainComponent::showMixerPluginChooser(const int channelIndex, const int slotIndex)

@@ -938,6 +938,10 @@ private:
     void loadKnownPluginList();
     void saveKnownPluginList() const;
     void scanAndStoreAvailablePlugins();
+    void clearPluginScanCache();
+    void showFailedPluginList();
+    void refreshAudioReadinessStatus();
+    [[nodiscard]] juce::String getAudioDeviceStatusText() const;
     void showMixerPluginChooser(int channelIndex, int slotIndex);
     void loadMixerPluginSlot(int channelIndex, int slotIndex, const juce::PluginDescription& description);
     void restoreMixerPluginSlot(int channelIndex, int slotIndex, const juce::String& identifier, const juce::MemoryBlock& state);
@@ -1204,6 +1208,13 @@ private:
     juce::TextButton compileInstrumentButton;
     juce::TextButton applyInstrumentMapButton;
     juce::Label instrumentAuditionLabel;
+    juce::Label audioReadinessLabel;
+    juce::Label audioDeviceStatusLabel;
+    juce::Label embeddedScStatusLabel;
+    juce::Label pluginScanStatusLabel;
+    juce::TextButton rescanPluginsButton;
+    juce::TextButton clearPluginCacheButton;
+    juce::TextButton failedPluginsButton;
     juce::TextEditor auditionPitchEditor;
     juce::TextEditor auditionVelocityEditor;
     juce::TextEditor auditionDurationEditor;
