@@ -15,6 +15,13 @@ constexpr juce::CommandID editPaste = 0x2004;
 constexpr juce::CommandID editDuplicate = 0x2005;
 constexpr juce::CommandID editDelete = 0x2006;
 constexpr juce::CommandID editSelectAll = 0x2007;
+constexpr juce::CommandID viewMain = 0x2100;
+constexpr juce::CommandID viewMixer = 0x2101;
+constexpr juce::CommandID viewArrangement = 0x2102;
+constexpr juce::CommandID viewInstruments = 0x2103;
+constexpr juce::CommandID viewTransitions = 0x2104;
+constexpr juce::CommandID viewEventMonitor = 0x2105;
+constexpr juce::CommandID viewStateInspector = 0x2106;
 }
 
 juce::String exampleMenuTitleFor(const juce::File& file)
@@ -138,20 +145,18 @@ private:
             }
             else if (menuIndex == 2)
             {
-                const auto mixerVisible = mainComponent != nullptr && mainComponent->isMixerViewVisible();
-                const auto arrangementVisible = mainComponent != nullptr && mainComponent->isArrangementViewVisible();
-                const auto instrumentsVisible = mainComponent != nullptr && mainComponent->isInstrumentsViewVisible();
-                const auto transitionsVisible = mainComponent != nullptr && mainComponent->isTransitionsViewVisible();
-                const auto eventMonitorVisible = mainComponent != nullptr && mainComponent->isEventMonitorViewVisible();
-                const auto stateInspectorVisible = mainComponent != nullptr && mainComponent->isStateInspectorViewVisible();
-                menu.addItem(9, "Main", true, mainComponent != nullptr && ! mixerVisible && ! arrangementVisible && ! instrumentsVisible && ! transitionsVisible && ! eventMonitorVisible && ! stateInspectorVisible);
+                menu.addSectionHeader("Workspace");
+                menu.addCommandItem(&commandManager, CommandIDs::viewMain);
                 menu.addSeparator();
-                menu.addItem(10, "Mixer", true, mixerVisible);
-                menu.addItem(11, "Arrangement", true, arrangementVisible);
-                menu.addItem(12, "Instruments", true, instrumentsVisible);
-                menu.addItem(13, "Transitions Editor", true, transitionsVisible);
-                menu.addItem(14, "Event Monitor", true, eventMonitorVisible);
-                menu.addItem(15, "State Inspector", true, stateInspectorVisible);
+                menu.addSectionHeader("Views");
+                menu.addCommandItem(&commandManager, CommandIDs::viewMixer);
+                menu.addCommandItem(&commandManager, CommandIDs::viewArrangement);
+                menu.addCommandItem(&commandManager, CommandIDs::viewInstruments);
+                menu.addCommandItem(&commandManager, CommandIDs::viewTransitions);
+                menu.addSeparator();
+                menu.addSectionHeader("Inspect");
+                menu.addCommandItem(&commandManager, CommandIDs::viewEventMonitor);
+                menu.addCommandItem(&commandManager, CommandIDs::viewStateInspector);
             }
             else if (menuIndex == 3)
             {
@@ -205,20 +210,6 @@ private:
                 mainComponent->menuExportStateStems();
             else if (menuItemID == 6)
                 mainComponent->menuExportLaneStems();
-            else if (menuItemID == 9)
-                mainComponent->menuShowMainView();
-            else if (menuItemID == 10)
-                mainComponent->menuToggleMixerView();
-            else if (menuItemID == 11)
-                mainComponent->menuToggleArrangementView();
-            else if (menuItemID == 12)
-                mainComponent->menuToggleInstrumentsView();
-            else if (menuItemID == 13)
-                mainComponent->menuToggleTransitionsView();
-            else if (menuItemID == 14)
-                mainComponent->menuToggleEventMonitorView();
-            else if (menuItemID == 15)
-                mainComponent->menuToggleStateInspectorView();
             else if (menuItemID >= exampleMenuBaseId && menuItemID < exampleMenuBaseId + exampleFiles.size())
                 mainComponent->menuLoadExample(exampleFiles[menuItemID - exampleMenuBaseId]);
 
@@ -239,12 +230,32 @@ private:
                                 CommandIDs::editPaste,
                                 CommandIDs::editSelectAll,
                                 CommandIDs::editDuplicate,
-                                CommandIDs::editDelete });
+                                CommandIDs::editDelete,
+                                CommandIDs::viewMain,
+                                CommandIDs::viewMixer,
+                                CommandIDs::viewArrangement,
+                                CommandIDs::viewInstruments,
+                                CommandIDs::viewTransitions,
+                                CommandIDs::viewEventMonitor,
+                                CommandIDs::viewStateInspector });
         }
 
         void getCommandInfo(const juce::CommandID commandID, juce::ApplicationCommandInfo& result) override
         {
             const auto canEdit = mainComponent != nullptr;
+            const auto mixerVisible = mainComponent != nullptr && mainComponent->isMixerViewVisible();
+            const auto arrangementVisible = mainComponent != nullptr && mainComponent->isArrangementViewVisible();
+            const auto instrumentsVisible = mainComponent != nullptr && mainComponent->isInstrumentsViewVisible();
+            const auto transitionsVisible = mainComponent != nullptr && mainComponent->isTransitionsViewVisible();
+            const auto eventMonitorVisible = mainComponent != nullptr && mainComponent->isEventMonitorViewVisible();
+            const auto stateInspectorVisible = mainComponent != nullptr && mainComponent->isStateInspectorViewVisible();
+            const auto mainVisible = mainComponent != nullptr
+                                  && ! mixerVisible
+                                  && ! arrangementVisible
+                                  && ! instrumentsVisible
+                                  && ! transitionsVisible
+                                  && ! eventMonitorVisible
+                                  && ! stateInspectorVisible;
 
             switch (commandID)
             {
@@ -296,6 +307,55 @@ private:
                     result.setActive(canEdit);
                     break;
 
+                case CommandIDs::viewMain:
+                    result.setInfo("Main", "Show the main composition workspace", "View", 0);
+                    result.addDefaultKeypress('1', juce::ModifierKeys::commandModifier);
+                    result.setActive(mainComponent != nullptr);
+                    result.setTicked(mainVisible);
+                    break;
+
+                case CommandIDs::viewMixer:
+                    result.setInfo("Mixer", "Show the mixer", "View", 0);
+                    result.addDefaultKeypress('2', juce::ModifierKeys::commandModifier);
+                    result.setActive(mainComponent != nullptr);
+                    result.setTicked(mixerVisible);
+                    break;
+
+                case CommandIDs::viewArrangement:
+                    result.setInfo("Arrangement", "Show the arrangement", "View", 0);
+                    result.addDefaultKeypress('3', juce::ModifierKeys::commandModifier);
+                    result.setActive(mainComponent != nullptr);
+                    result.setTicked(arrangementVisible);
+                    break;
+
+                case CommandIDs::viewInstruments:
+                    result.setInfo("Instruments", "Show instrument definitions and channel mapping", "View", 0);
+                    result.addDefaultKeypress('4', juce::ModifierKeys::commandModifier);
+                    result.setActive(mainComponent != nullptr);
+                    result.setTicked(instrumentsVisible);
+                    break;
+
+                case CommandIDs::viewTransitions:
+                    result.setInfo("Transitions", "Show the full transitions editor", "View", 0);
+                    result.addDefaultKeypress('5', juce::ModifierKeys::commandModifier);
+                    result.setActive(mainComponent != nullptr);
+                    result.setTicked(transitionsVisible);
+                    break;
+
+                case CommandIDs::viewEventMonitor:
+                    result.setInfo("Event Monitor", "Show emitted events and runtime activity", "View", 0);
+                    result.addDefaultKeypress('6', juce::ModifierKeys::commandModifier);
+                    result.setActive(mainComponent != nullptr);
+                    result.setTicked(eventMonitorVisible);
+                    break;
+
+                case CommandIDs::viewStateInspector:
+                    result.setInfo("State Inspector", "Show detailed controls for the selected state", "View", 0);
+                    result.addDefaultKeypress('7', juce::ModifierKeys::commandModifier);
+                    result.setActive(mainComponent != nullptr);
+                    result.setTicked(stateInspectorVisible);
+                    break;
+
                 default:
                     break;
             }
@@ -316,6 +376,13 @@ private:
                 case CommandIDs::editSelectAll: mainComponent->menuEditSelectAll(); break;
                 case CommandIDs::editDuplicate: mainComponent->menuEditDuplicate(); break;
                 case CommandIDs::editDelete:    mainComponent->menuEditDelete(); break;
+                case CommandIDs::viewMain: mainComponent->menuShowMainView(); break;
+                case CommandIDs::viewMixer: mainComponent->menuToggleMixerView(); break;
+                case CommandIDs::viewArrangement: mainComponent->menuToggleArrangementView(); break;
+                case CommandIDs::viewInstruments: mainComponent->menuToggleInstrumentsView(); break;
+                case CommandIDs::viewTransitions: mainComponent->menuToggleTransitionsView(); break;
+                case CommandIDs::viewEventMonitor: mainComponent->menuToggleEventMonitorView(); break;
+                case CommandIDs::viewStateInspector: mainComponent->menuToggleStateInspectorView(); break;
                 default: return false;
             }
 
