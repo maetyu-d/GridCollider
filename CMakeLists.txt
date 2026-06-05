@@ -77,7 +77,7 @@ else()
 endif()
 
 if (EXISTS "/Users/user/Documents/weld2/ChucK_weld_engine/third_party/supercollider/include/server/SC_WorldOptions.h")
-    target_include_directories(GridCollider
+    target_include_directories(GridCollider SYSTEM
         PRIVATE
             "/Users/user/Documents/weld2/ChucK_weld_engine/third_party/supercollider/include/common"
             "/Users/user/Documents/weld2/ChucK_weld_engine/third_party/supercollider/include/plugin_interface"

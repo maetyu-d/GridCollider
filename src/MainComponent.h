@@ -268,10 +268,10 @@ private:
                 const auto glyph = group.collapsed ? "+" : "-";
                 graphics.drawFittedText(glyph, labelArea.removeFromLeft(13), juce::Justification::centred, 1);
                 labelArea.removeFromLeft(2);
-                graphics.drawFittedText(group.name
-                                            + "  "
-                                            + juce::String(group.laneCount)
-                                            + (group.laneCount == 1 ? " lane" : " lanes"),
+                auto label = group.name;
+                if (label.length() > 30)
+                    label = label.substring(0, 29) + "...";
+                graphics.drawFittedText(label + "  " + juce::String(group.laneCount),
                                         labelArea,
                                         juce::Justification::centredLeft,
                                         1);
@@ -288,15 +288,15 @@ private:
 
         void paint(juce::Graphics& graphics) override
         {
-            const auto paper = juce::Colour::fromRGB(40, 41, 40);
-            const auto strip = juce::Colour::fromRGB(82, 83, 80);
+            const auto paper = juce::Colour::fromRGB(34, 35, 35);
+            const auto strip = juce::Colour::fromRGB(76, 77, 74);
             const auto ink = juce::Colour::fromRGB(242, 242, 236);
             const auto line = juce::Colour::fromRGB(24, 25, 24);
             const auto faint = juce::Colour::fromRGB(140, 142, 136);
 
             graphics.fillAll(paper);
-            graphics.setColour(faint.withAlpha(0.10f));
-            for (int y = 26; y < getHeight(); y += 34)
+            graphics.setColour(faint.withAlpha(0.065f));
+            for (int y = 26; y < getHeight(); y += 42)
                 graphics.drawHorizontalLine(y, 0.0f, static_cast<float>(getWidth()));
 
             paintGroupHeaders(graphics, ink, line);
@@ -318,13 +318,13 @@ private:
                 graphics.setColour(channel.colour);
                 graphics.fillRect(colourBand);
 
-                auto header = bounds.removeFromTop(channel.master ? 66 : 84).reduced(5, 6);
+                auto header = bounds.removeFromTop(channel.master ? 66 : 78).reduced(5, 6);
                 graphics.setColour(ink);
                 graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.2f, juce::Font::bold));
                 graphics.drawFittedText(channel.name, header.removeFromTop(19), juce::Justification::centred, 1);
 
                 graphics.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 8.0f, juce::Font::plain));
-                auto routeArea = header.removeFromTop(channel.master ? 18 : 22).reduced(channel.master ? 1 : 0, 1);
+                auto routeArea = header.removeFromTop(channel.master ? 18 : 19).reduced(channel.master ? 1 : 0, 1);
                 auto routeLabel = channel.master ? juce::String("STEREO") : channel.output;
                 if (! channel.master)
                     routeLabel = routeLabel.startsWith("BUS ")

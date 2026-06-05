@@ -4456,7 +4456,7 @@ void MainComponent::styleMixerControls()
         output.setColour(juce::PopupMenu::textColourId, mixerInk);
         output.setColour(juce::PopupMenu::highlightedBackgroundColourId, mixerBlue.withAlpha(0.70f));
         output.setColour(juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
-        output.setAlpha(0.01f);
+        output.setAlpha(0.0f);
 
         for (auto* button : { &mute, &solo })
         {
@@ -4725,8 +4725,8 @@ void MainComponent::refreshMixerView()
         const auto stripY = channel.master ? 10 : 42;
         const auto stripBounds = juce::Rectangle<int>(channel.x, stripY, channel.width - 6, juce::jmax(380, contentHeight - stripY - 10));
         const auto knobSize = juce::jmin(32, juce::jmax(24, stripBounds.getWidth() - 10));
-        const auto panY = stripBounds.getY() + 97;
-        const auto faderTop = stripBounds.getY() + (channel.master ? 104 : 148);
+        const auto panY = stripBounds.getY() + 91;
+        const auto faderTop = stripBounds.getY() + (channel.master ? 104 : 142);
         const auto faderBottom = stripBounds.getBottom() - 66;
         pan.setBounds(stripBounds.getCentreX() - knobSize / 2, panY, knobSize, knobSize);
         output.setBounds(routeVisible
@@ -4743,7 +4743,7 @@ void MainComponent::refreshMixerView()
                                                             stripBounds.getWidth() - 12,
                                                             17)
                                      : juce::Rectangle<int>(stripBounds.getX() + 5,
-                                                            stripBounds.getY() + 47 + slotIndex * 19,
+                                                            stripBounds.getY() + 46 + slotIndex * 18,
                                                             stripBounds.getWidth() - 10,
                                                             16));
             slotButton.setVisible(true);

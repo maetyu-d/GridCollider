@@ -202,10 +202,10 @@ void StateGraphComponent::paint(juce::Graphics& graphics)
 
         if (selected)
         {
-            graphics.setColour(accent(index).withAlpha(0.42f));
-            graphics.drawEllipse(bounds.expanded(7.0f), 1.2f);
-            graphics.setColour(accent(index).withAlpha(0.24f));
-            graphics.drawEllipse(bounds.expanded(14.0f), 1.0f);
+            graphics.setColour(accent(index).withAlpha(0.38f));
+            graphics.drawEllipse(bounds.expanded(6.0f), 1.2f);
+            graphics.setColour(accent(index).withAlpha(0.18f));
+            graphics.drawEllipse(bounds.expanded(12.0f), 1.0f);
         }
 
         graphics.setColour(selected ? accent(index) : ink().withAlpha(0.46f));
@@ -214,14 +214,14 @@ void StateGraphComponent::paint(juce::Graphics& graphics)
         const auto& state = states[static_cast<std::size_t>(index)];
         const auto gridCount = juce::jlimit(1, 8, state.gridCount);
         const auto nodeLabel = splitStateName(state.name, index);
-        const auto textWidth = bounds.getWidth() * 0.72f;
+        const auto textWidth = bounds.getWidth() * 0.82f;
         const auto centre = bounds.getCentre();
-        const auto titleSize = selected ? 13.2f : 12.4f;
-        const auto nameSize = selected ? 14.0f : 13.0f;
+        const auto titleSize = selected ? 12.8f : 12.0f;
+        const auto nameSize = selected ? 13.8f : 12.8f;
         const auto metaSize = selected ? 10.4f : 10.0f;
-        const auto stateLine = juce::Rectangle<float>(textWidth, 18.0f).withCentre({ centre.x, centre.y - 20.0f });
-        const auto nameLine = juce::Rectangle<float>(textWidth, 20.0f).withCentre({ centre.x, centre.y - 2.0f });
-        const auto metaLine = juce::Rectangle<float>(textWidth, 16.0f).withCentre({ centre.x, centre.y + 20.0f });
+        const auto stateLine = juce::Rectangle<float>(textWidth, 18.0f).withCentre({ centre.x, centre.y - 19.0f });
+        const auto nameLine = juce::Rectangle<float>(textWidth, 20.0f).withCentre({ centre.x, centre.y - 1.0f });
+        const auto metaLine = juce::Rectangle<float>(textWidth, 16.0f).withCentre({ centre.x, centre.y + 21.0f });
 
         drawCentredNodeLine(graphics,
                             stateLine,
@@ -240,7 +240,7 @@ void StateGraphComponent::paint(juce::Graphics& graphics)
                             juce::String(gridCount) + (gridCount == 1 ? " lane" : " lanes")
                                 + "  " + juce::String(state.bpm, 0) + " BPM",
                             juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), metaSize, juce::Font::plain),
-                            ink().withAlpha(0.72f));
+                            ink().withAlpha(selected ? 0.84f : 0.76f));
 
         if (selected && playing)
         {

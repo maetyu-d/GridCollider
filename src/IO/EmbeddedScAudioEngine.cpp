@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -434,7 +435,7 @@ struct EmbeddedScAudioEngine::Impl
 
         currentSampleRate = sampleRate;
         maxBlockSize = juce::jmax(maximumBlockSize, hostRenderQuantum);
-        numOutputChannels = juce::jlimit(1, 512, outputChannels);
+        numOutputChannels = juce::jlimit(2, 512, outputChannels);
         interleavedOutput.assign(static_cast<std::size_t>(maxBlockSize + hostRenderQuantum) * static_cast<std::size_t>(numOutputChannels), 0.0f);
 
         worldOptions = WorldOptions();
