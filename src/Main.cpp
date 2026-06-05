@@ -5,6 +5,18 @@
 
 namespace
 {
+namespace CommandIDs
+{
+constexpr juce::CommandID editUndo = 0x2000;
+constexpr juce::CommandID editRedo = 0x2001;
+constexpr juce::CommandID editCut = 0x2002;
+constexpr juce::CommandID editCopy = 0x2003;
+constexpr juce::CommandID editPaste = 0x2004;
+constexpr juce::CommandID editDuplicate = 0x2005;
+constexpr juce::CommandID editDelete = 0x2006;
+constexpr juce::CommandID editSelectAll = 0x2007;
+}
+
 juce::String exampleMenuTitleFor(const juce::File& file)
 {
     auto title = file.getFileNameWithoutExtension().replaceCharacter('-', ' ');
@@ -44,7 +56,8 @@ public:
 
 private:
     class MainWindow final : public juce::DocumentWindow,
-                             public juce::MenuBarModel
+                             public juce::MenuBarModel,
+                             public juce::ApplicationCommandTarget
     {
     public:
         explicit MainWindow(const juce::String& name)
@@ -58,6 +71,11 @@ private:
             auto* component = new gridcollider::MainComponent();
             mainComponent = component;
             setContentOwned(component, true);
+            setApplicationCommandManagerToWatch(&commandManager);
+            commandManager.registerAllCommandsForTarget(this);
+            commandManager.setFirstCommandTarget(this);
+            addKeyListener(commandManager.getKeyMappings());
+            setWantsKeyboardFocus(true);
            #if JUCE_MAC
             juce::MenuBarModel::setMacMainMenu(this);
            #else
@@ -69,6 +87,9 @@ private:
 
         ~MainWindow() override
         {
+            removeKeyListener(commandManager.getKeyMappings());
+            commandManager.setFirstCommandTarget(nullptr);
+            setApplicationCommandManagerToWatch(nullptr);
            #if JUCE_MAC
             juce::MenuBarModel::setMacMainMenu(nullptr);
            #else
@@ -83,7 +104,7 @@ private:
 
         juce::StringArray getMenuBarNames() override
         {
-            return { "File", "View", "Help" };
+            return { "File", "Edit", "View", "Help" };
         }
 
         juce::PopupMenu getMenuForIndex(int menuIndex, const juce::String&) override
@@ -99,8 +120,23 @@ private:
                 menu.addItem(4, "Export Stereo WAV...");
                 menu.addItem(5, "Export State Stems...");
                 menu.addItem(6, "Export Lane Stems...");
+                menu.addSeparator();
+                menu.addItem(7, "About GridCollider");
             }
             else if (menuIndex == 1)
+            {
+                menu.addCommandItem(&commandManager, CommandIDs::editUndo);
+                menu.addCommandItem(&commandManager, CommandIDs::editRedo);
+                menu.addSeparator();
+                menu.addCommandItem(&commandManager, CommandIDs::editCut);
+                menu.addCommandItem(&commandManager, CommandIDs::editCopy);
+                menu.addCommandItem(&commandManager, CommandIDs::editPaste);
+                menu.addCommandItem(&commandManager, CommandIDs::editSelectAll);
+                menu.addSeparator();
+                menu.addCommandItem(&commandManager, CommandIDs::editDuplicate);
+                menu.addCommandItem(&commandManager, CommandIDs::editDelete);
+            }
+            else if (menuIndex == 2)
             {
                 const auto mixerVisible = mainComponent != nullptr && mainComponent->isMixerViewVisible();
                 const auto arrangementVisible = mainComponent != nullptr && mainComponent->isArrangementViewVisible();
@@ -117,7 +153,7 @@ private:
                 menu.addItem(14, "Event Monitor", true, eventMonitorVisible);
                 menu.addItem(15, "State Inspector", true, stateInspectorVisible);
             }
-            else if (menuIndex == 2)
+            else if (menuIndex == 3)
             {
                 exampleFiles = presetManager.findExampleFiles();
 
@@ -142,6 +178,18 @@ private:
 
         void menuItemSelected(const int menuItemID, int) override
         {
+            if (menuItemID == 7)
+            {
+                auto* app = juce::JUCEApplication::getInstance();
+                const auto name = app != nullptr ? app->getApplicationName() : juce::String("GridCollider");
+                const auto version = app != nullptr ? app->getApplicationVersion() : juce::String("0.1.0");
+
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                       "About " + name,
+                                                       name + "\nVersion " + version + "\nby matd.space");
+                return;
+            }
+
             if (mainComponent == nullptr)
                 return;
 
@@ -177,9 +225,108 @@ private:
             menuItemsChanged();
         }
 
+        juce::ApplicationCommandTarget* getNextCommandTarget() override
+        {
+            return nullptr;
+        }
+
+        void getAllCommands(juce::Array<juce::CommandID>& commands) override
+        {
+            commands.addArray({ CommandIDs::editUndo,
+                                CommandIDs::editRedo,
+                                CommandIDs::editCut,
+                                CommandIDs::editCopy,
+                                CommandIDs::editPaste,
+                                CommandIDs::editSelectAll,
+                                CommandIDs::editDuplicate,
+                                CommandIDs::editDelete });
+        }
+
+        void getCommandInfo(const juce::CommandID commandID, juce::ApplicationCommandInfo& result) override
+        {
+            const auto canEdit = mainComponent != nullptr;
+
+            switch (commandID)
+            {
+                case CommandIDs::editUndo:
+                    result.setInfo("Undo", "Undo the last edit", "Edit", 0);
+                    result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier);
+                    result.setActive(canEdit && mainComponent->canMenuEditUndo());
+                    break;
+
+                case CommandIDs::editRedo:
+                    result.setInfo("Redo", "Redo the last undone edit", "Edit", 0);
+                    result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+                    result.setActive(canEdit && mainComponent->canMenuEditRedo());
+                    break;
+
+                case CommandIDs::editCut:
+                    result.setInfo("Cut", "Cut the selected item or text", "Edit", 0);
+                    result.addDefaultKeypress('x', juce::ModifierKeys::commandModifier);
+                    result.setActive(canEdit);
+                    break;
+
+                case CommandIDs::editCopy:
+                    result.setInfo("Copy", "Copy the selected item or text", "Edit", 0);
+                    result.addDefaultKeypress('c', juce::ModifierKeys::commandModifier);
+                    result.setActive(canEdit);
+                    break;
+
+                case CommandIDs::editPaste:
+                    result.setInfo("Paste", "Paste into the current editor or lane/state context", "Edit", 0);
+                    result.addDefaultKeypress('v', juce::ModifierKeys::commandModifier);
+                    result.setActive(canEdit && mainComponent->canMenuEditPaste());
+                    break;
+
+                case CommandIDs::editSelectAll:
+                    result.setInfo("Select All", "Select all text or grid cells in the current editor", "Edit", 0);
+                    result.addDefaultKeypress('a', juce::ModifierKeys::commandModifier);
+                    result.setActive(canEdit && mainComponent->canMenuEditSelectAll());
+                    break;
+
+                case CommandIDs::editDuplicate:
+                    result.setInfo("Duplicate", "Duplicate the current selection, state, or lane", "Edit", 0);
+                    result.addDefaultKeypress('d', juce::ModifierKeys::commandModifier);
+                    result.setActive(canEdit);
+                    break;
+
+                case CommandIDs::editDelete:
+                    result.setInfo("Delete", "Delete the current selection, state, or lane", "Edit", 0);
+                    result.addDefaultKeypress(juce::KeyPress::deleteKey, {});
+                    result.setActive(canEdit);
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        bool perform(const InvocationInfo& info) override
+        {
+            if (mainComponent == nullptr)
+                return false;
+
+            switch (info.commandID)
+            {
+                case CommandIDs::editUndo:      mainComponent->menuEditUndo(); break;
+                case CommandIDs::editRedo:      mainComponent->menuEditRedo(); break;
+                case CommandIDs::editCut:       mainComponent->menuEditCut(); break;
+                case CommandIDs::editCopy:      mainComponent->menuEditCopy(); break;
+                case CommandIDs::editPaste:     mainComponent->menuEditPaste(); break;
+                case CommandIDs::editSelectAll: mainComponent->menuEditSelectAll(); break;
+                case CommandIDs::editDuplicate: mainComponent->menuEditDuplicate(); break;
+                case CommandIDs::editDelete:    mainComponent->menuEditDelete(); break;
+                default: return false;
+            }
+
+            menuItemsChanged();
+            return true;
+        }
+
     private:
         static constexpr int exampleMenuBaseId = 1000;
 
+        juce::ApplicationCommandManager commandManager;
         gridcollider::MainComponent* mainComponent = nullptr;
         gridcollider::PresetManager presetManager;
         juce::Array<juce::File> exampleFiles;

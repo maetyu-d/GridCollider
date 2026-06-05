@@ -18,6 +18,7 @@ constexpr float zoomStep = 1.12f;
 constexpr float outerPadding = 8.0f;
 constexpr float topRulerHeight = 24.0f;
 constexpr float leftRulerWidth = 46.0f;
+constexpr std::size_t maximumUndoSnapshots = 128;
 
 [[nodiscard]] int clampIndex(const int value, const int upperExclusive) noexcept
 {
@@ -502,11 +503,57 @@ bool GridEditorComponent::areRulersVisible() const noexcept
 
 void GridEditorComponent::clearGrid()
 {
+    pushUndoSnapshot();
     model.clear();
     cursor = {};
     selectionAnchor.reset();
     scrollOffset = {};
     repaint();
+}
+
+void GridEditorComponent::deleteSelectionOrCell()
+{
+    clearSelectionOrCell(false);
+}
+
+bool GridEditorComponent::canUndo() const noexcept
+{
+    return ! undoSnapshots.empty();
+}
+
+bool GridEditorComponent::canRedo() const noexcept
+{
+    return ! redoSnapshots.empty();
+}
+
+bool GridEditorComponent::undo()
+{
+    if (undoSnapshots.empty())
+        return false;
+
+    redoSnapshots.push_back(model.createSnapshot());
+    auto snapshot = std::move(undoSnapshots.back());
+    undoSnapshots.pop_back();
+    restoreUndoSnapshot(snapshot);
+    return true;
+}
+
+bool GridEditorComponent::redo()
+{
+    if (redoSnapshots.empty())
+        return false;
+
+    undoSnapshots.push_back(model.createSnapshot());
+    auto snapshot = std::move(redoSnapshots.back());
+    redoSnapshots.pop_back();
+    restoreUndoSnapshot(snapshot);
+    return true;
+}
+
+void GridEditorComponent::clearUndoHistory()
+{
+    undoSnapshots.clear();
+    redoSnapshots.clear();
 }
 
 void GridEditorComponent::zoomIn()
@@ -682,6 +729,20 @@ void GridEditorComponent::insertCharacter(const char character)
 {
     const auto target = hasSelection() ? CellPosition { getSelectedCells().getX(), getSelectedCells().getY() } : cursor;
 
+    if (! hasSelection() && model.getGlyph(cursor.column, cursor.row) == character)
+    {
+        if (cursor.column + 1 < model.getWidth())
+            setCursor({ cursor.column + 1, cursor.row }, false);
+        else if (cursor.row + 1 < model.getHeight())
+            setCursor({ 0, cursor.row + 1 }, false);
+        else
+            repaint();
+
+        return;
+    }
+
+    pushUndoSnapshot();
+
     if (hasSelection())
         clearCells(getSelectedCells());
 
@@ -697,8 +758,43 @@ void GridEditorComponent::insertCharacter(const char character)
         repaint();
 }
 
+void GridEditorComponent::pushUndoSnapshot()
+{
+    undoSnapshots.push_back(model.createSnapshot());
+
+    if (undoSnapshots.size() > maximumUndoSnapshots)
+        undoSnapshots.erase(undoSnapshots.begin());
+
+    redoSnapshots.clear();
+}
+
+void GridEditorComponent::restoreUndoSnapshot(const GridModel::Snapshot& snapshot)
+{
+    model.applySnapshot(snapshot);
+    cursor.column = clampIndex(cursor.column, model.getWidth());
+    cursor.row = clampIndex(cursor.row, model.getHeight());
+    selectionAnchor.reset();
+    mouseSelectionAnchor.reset();
+    clampScrollOffset();
+    repaint();
+}
+
 void GridEditorComponent::clearSelectionOrCell(const bool moveLeftAfterClearing)
 {
+    if (! hasSelection() && model.getGlyph(cursor.column, cursor.row) == GridModel::emptyGlyph)
+    {
+        if (moveLeftAfterClearing && cursor.column > 0)
+            setCursor({ cursor.column - 1, cursor.row }, false);
+        else if (moveLeftAfterClearing && cursor.row > 0)
+            setCursor({ model.getWidth() - 1, cursor.row - 1 }, false);
+        else
+            repaint();
+
+        return;
+    }
+
+    pushUndoSnapshot();
+
     if (hasSelection())
     {
         const auto selected = getSelectedCells();
@@ -767,6 +863,8 @@ void GridEditorComponent::pasteFromClipboard()
 
     if (lines.empty())
         return;
+
+    pushUndoSnapshot();
 
     const auto start = hasSelection() ? CellPosition { getSelectedCells().getX(), getSelectedCells().getY() } : cursor;
     int pastedWidth = 0;

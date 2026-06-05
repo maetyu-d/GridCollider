@@ -46,6 +46,16 @@ public:
     [[nodiscard]] bool areRulersVisible() const noexcept;
 
     void clearGrid();
+    void copySelectionToClipboard() const;
+    void cutSelectionToClipboard();
+    void pasteFromClipboard();
+    void deleteSelectionOrCell();
+    void selectAll();
+    [[nodiscard]] bool canUndo() const noexcept;
+    [[nodiscard]] bool canRedo() const noexcept;
+    bool undo();
+    bool redo();
+    void clearUndoHistory();
     void zoomIn();
     void zoomOut();
     void resetZoom();
@@ -84,6 +94,8 @@ private:
     std::optional<juce::Point<float>> rightDragPanAnchor;
 
     juce::Point<float> scrollOffset;
+    std::vector<GridModel::Snapshot> undoSnapshots;
+    std::vector<GridModel::Snapshot> redoSnapshots;
     std::optional<int> playheadRow;
     float zoom = 1.0f;
     bool rulersVisible = true;
@@ -100,12 +112,10 @@ private:
     void moveCursor(int deltaColumns, int deltaRows, bool extendingSelection);
     void setCursor(CellPosition position, bool extendingSelection);
     void insertCharacter(char character);
+    void pushUndoSnapshot();
+    void restoreUndoSnapshot(const GridModel::Snapshot& snapshot);
     void clearSelectionOrCell(bool moveLeftAfterClearing);
     void clearCells(const juce::Rectangle<int>& cellsToClear);
-    void copySelectionToClipboard() const;
-    void cutSelectionToClipboard();
-    void pasteFromClipboard();
-    void selectAll();
     void toggleRulers();
     void setZoom(float newZoom);
     void zoomAt(float newZoom, juce::Point<float> anchor);

@@ -42,6 +42,18 @@ public:
     void menuExportStereoWav();
     void menuExportStateStems();
     void menuExportLaneStems();
+    void menuEditCut();
+    void menuEditCopy();
+    void menuEditPaste();
+    void menuEditDuplicate();
+    void menuEditDelete();
+    void menuEditSelectAll();
+    void menuEditUndo();
+    void menuEditRedo();
+    [[nodiscard]] bool canMenuEditUndo() const;
+    [[nodiscard]] bool canMenuEditRedo() const;
+    [[nodiscard]] bool canMenuEditPaste() const;
+    [[nodiscard]] bool canMenuEditSelectAll() const;
     void menuShowMainView();
     void menuToggleMixerView();
     void menuToggleArrangementView();
@@ -71,7 +83,17 @@ public:
 private:
     using juce::Component::keyPressed;
 
+    enum class EditAction
+    {
+        cut,
+        copy,
+        paste,
+        duplicate,
+        deleteItem
+    };
+
     struct CompositionGrid;
+    struct CompositionUndoState;
 
     class MinimalLookAndFeel final : public juce::LookAndFeel_V4
     {
@@ -831,6 +853,27 @@ private:
     void resetTransport();
     void applyTransportEditors();
     void advanceStateFromTransitionPane(const TransportEngine::TickResult& result);
+    bool performContextEdit(EditAction action);
+    bool performContextSelectAll();
+    bool performContextUndo();
+    bool performContextRedo();
+    [[nodiscard]] bool canPerformContextUndo() const;
+    [[nodiscard]] bool canPerformContextRedo() const;
+    bool performFocusedCodeEdit(EditAction action);
+    bool performFocusedTextEdit(EditAction action);
+    bool performFocusedCodeSelectAll();
+    bool performFocusedTextSelectAll();
+    bool performFocusedCodeUndo(bool redo);
+    bool performFocusedTextUndo(bool redo);
+    static bool duplicateCodeEditorContent(juce::CodeEditorComponent& editor);
+    static bool duplicateTextEditorContent(juce::TextEditor& editor);
+    [[nodiscard]] CompositionUndoState captureCompositionUndoState() const;
+    [[nodiscard]] bool compositionUndoStatesEqual(const CompositionUndoState& first,
+                                                  const CompositionUndoState& second) const;
+    void pushCompositionUndoSnapshot();
+    bool undoCompositionEdit();
+    bool redoCompositionEdit();
+    void restoreCompositionUndoState(CompositionUndoState snapshot);
     void toggleSelectedStateAdvanceMode();
     void applyStateAdvanceEditor();
     void applyStateTimeSignatureEditors();
@@ -844,6 +887,10 @@ private:
     void copySelectedState();
     void pasteCopiedState();
     void deleteSelectedState();
+    void copySelectedLane();
+    void pasteCopiedLane();
+    void duplicateSelectedLane();
+    void deleteSelectedLane();
     void configureGridSlotControls();
     void styleGridSlotControls();
     void updateGridSlotControls();
@@ -1066,6 +1113,13 @@ private:
         std::vector<CompositionGrid> grids;
     };
 
+    struct CompositionUndoState
+    {
+        std::vector<CompositionState> states;
+        int activeState = 0;
+        int activeLane = 0;
+    };
+
     [[nodiscard]] juce::String getStateAdvanceModeText(CompositionState::AdvanceMode mode) const;
 
     GridModel gridModel;
@@ -1275,6 +1329,9 @@ private:
     mutable std::mutex eventMonitorMutex;
     std::vector<CompositionState> compositionStates;
     std::optional<CompositionState> copiedState;
+    std::optional<CompositionGrid> copiedLane;
+    std::vector<CompositionUndoState> compositionUndoSnapshots;
+    std::vector<CompositionUndoState> compositionRedoSnapshots;
     std::array<MixerBus, maximumMixerBuses> mixerBuses;
     struct UserInstrument
     {

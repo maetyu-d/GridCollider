@@ -685,6 +685,7 @@ namespace
 {
 constexpr int maximumCompositionStates = 16;
 constexpr int maximumGridsPerState = 8;
+constexpr std::size_t maximumCompositionUndoSnapshots = 64;
 constexpr int mixerBusCount = 4;
 constexpr int firstBusMeterIndex = maximumCompositionStates * maximumGridsPerState;
 constexpr int masterMeterIndex = firstBusMeterIndex + mixerBusCount;
@@ -882,6 +883,68 @@ void MainComponent::menuExportLaneStems()
     showExportStemsDurationDialog(ExportCaptureMode::laneStems);
 }
 
+void MainComponent::menuEditCut()
+{
+    performContextEdit(EditAction::cut);
+}
+
+void MainComponent::menuEditCopy()
+{
+    performContextEdit(EditAction::copy);
+}
+
+void MainComponent::menuEditPaste()
+{
+    performContextEdit(EditAction::paste);
+}
+
+void MainComponent::menuEditDuplicate()
+{
+    performContextEdit(EditAction::duplicate);
+}
+
+void MainComponent::menuEditDelete()
+{
+    performContextEdit(EditAction::deleteItem);
+}
+
+void MainComponent::menuEditSelectAll()
+{
+    performContextSelectAll();
+}
+
+void MainComponent::menuEditUndo()
+{
+    performContextUndo();
+}
+
+void MainComponent::menuEditRedo()
+{
+    performContextRedo();
+}
+
+bool MainComponent::canMenuEditUndo() const
+{
+    return canPerformContextUndo();
+}
+
+bool MainComponent::canMenuEditRedo() const
+{
+    return canPerformContextRedo();
+}
+
+bool MainComponent::canMenuEditPaste() const
+{
+    return copiedLane.has_value()
+           || copiedState.has_value()
+           || juce::SystemClipboard::getTextFromClipboard().isNotEmpty();
+}
+
+bool MainComponent::canMenuEditSelectAll() const
+{
+    return true;
+}
+
 void MainComponent::menuShowMainView()
 {
     mixerViewVisible = false;
@@ -1021,6 +1084,623 @@ bool MainComponent::isEventMonitorViewVisible() const noexcept
 bool MainComponent::isStateInspectorViewVisible() const noexcept
 {
     return stateInspectorViewVisible;
+}
+
+bool MainComponent::performContextSelectAll()
+{
+    if (performFocusedCodeSelectAll())
+        return true;
+
+    if (performFocusedTextSelectAll())
+        return true;
+
+    if (gridEditor.hasKeyboardFocus(true))
+    {
+        gridEditor.selectAll();
+        return true;
+    }
+
+    if (instrumentsViewVisible)
+    {
+        instrumentCodeEditor.selectAll();
+        instrumentCodeEditor.grabKeyboardFocus();
+        return true;
+    }
+
+    if (transitionsViewVisible || stateInspectorViewVisible)
+    {
+        transitionCodeEditor.selectAll();
+        transitionCodeEditor.grabKeyboardFocus();
+        return true;
+    }
+
+    gridEditor.selectAll();
+    gridEditor.grabKeyboardFocus();
+    return true;
+}
+
+bool MainComponent::performContextUndo()
+{
+    if (performFocusedCodeUndo(false))
+        return true;
+
+    if (performFocusedTextUndo(false))
+        return true;
+
+    if (gridEditor.hasKeyboardFocus(true))
+    {
+        gridEditor.undo();
+        return true;
+    }
+
+    if (instrumentsViewVisible)
+    {
+        statusLog.append("Select instrument text or SynthDef code to undo");
+        repaint();
+        return true;
+    }
+
+    undoCompositionEdit();
+    return true;
+}
+
+bool MainComponent::performContextRedo()
+{
+    if (performFocusedCodeUndo(true))
+        return true;
+
+    if (performFocusedTextUndo(true))
+        return true;
+
+    if (gridEditor.hasKeyboardFocus(true))
+    {
+        gridEditor.redo();
+        return true;
+    }
+
+    if (instrumentsViewVisible)
+    {
+        statusLog.append("Select instrument text or SynthDef code to redo");
+        repaint();
+        return true;
+    }
+
+    redoCompositionEdit();
+    return true;
+}
+
+bool MainComponent::canPerformContextUndo() const
+{
+    for (const auto* editor : { &transitionCodeEditor, &stateInspectorTransitionEditor, &laneScCodeEditor, &instrumentCodeEditor })
+        if (editor->hasKeyboardFocus(true))
+            return true;
+
+    if (dynamic_cast<juce::TextEditor*>(juce::Component::getCurrentlyFocusedComponent()) != nullptr)
+        return true;
+
+    if (gridEditor.hasKeyboardFocus(true))
+        return gridEditor.canUndo();
+
+    if (instrumentsViewVisible)
+        return false;
+
+    return ! compositionUndoSnapshots.empty();
+}
+
+bool MainComponent::canPerformContextRedo() const
+{
+    for (const auto* editor : { &transitionCodeEditor, &stateInspectorTransitionEditor, &laneScCodeEditor, &instrumentCodeEditor })
+        if (editor->hasKeyboardFocus(true))
+            return true;
+
+    if (dynamic_cast<juce::TextEditor*>(juce::Component::getCurrentlyFocusedComponent()) != nullptr)
+        return true;
+
+    if (gridEditor.hasKeyboardFocus(true))
+        return gridEditor.canRedo();
+
+    if (instrumentsViewVisible)
+        return false;
+
+    return ! compositionRedoSnapshots.empty();
+}
+
+bool MainComponent::performContextEdit(const EditAction action)
+{
+    if (performFocusedCodeEdit(action))
+        return true;
+
+    if (performFocusedTextEdit(action))
+        return true;
+
+    if (gridEditor.hasKeyboardFocus(true))
+    {
+        if (action == EditAction::cut)
+        {
+            gridEditor.cutSelectionToClipboard();
+            return true;
+        }
+
+        if (action == EditAction::copy)
+        {
+            gridEditor.copySelectionToClipboard();
+            return true;
+        }
+
+        if (action == EditAction::paste)
+        {
+            gridEditor.pasteFromClipboard();
+            return true;
+        }
+
+        if (action == EditAction::deleteItem)
+        {
+            gridEditor.deleteSelectionOrCell();
+            return true;
+        }
+
+        duplicateSelectedLane();
+        return true;
+    }
+
+    const auto stateContext = stateGraph.hasKeyboardFocus(true)
+                              || arrangementViewVisible
+                              || stateInspectorViewVisible;
+
+    if (stateContext)
+    {
+        if (action == EditAction::cut)
+        {
+            copySelectedState();
+            deleteSelectedState();
+            return true;
+        }
+
+        if (action == EditAction::copy)
+        {
+            copySelectedState();
+            return true;
+        }
+
+        if (action == EditAction::paste)
+        {
+            pasteCopiedState();
+            return true;
+        }
+
+        if (action == EditAction::duplicate)
+        {
+            copySelectedState();
+            pasteCopiedState();
+            return true;
+        }
+
+        deleteSelectedState();
+        return true;
+    }
+
+    if (instrumentsViewVisible)
+    {
+        if (action == EditAction::duplicate)
+        {
+            duplicateSelectedInstrument();
+            return true;
+        }
+
+        if (action == EditAction::deleteItem)
+        {
+            deleteSelectedUserInstrument();
+            return true;
+        }
+
+        statusLog.append("Select instrument text or SynthDef code to edit");
+        repaint();
+        return true;
+    }
+
+    if (action == EditAction::cut)
+    {
+        copySelectedLane();
+        deleteSelectedLane();
+        return true;
+    }
+
+    if (action == EditAction::copy)
+    {
+        copySelectedLane();
+        return true;
+    }
+
+    if (action == EditAction::paste)
+    {
+        pasteCopiedLane();
+        return true;
+    }
+
+    if (action == EditAction::duplicate)
+    {
+        duplicateSelectedLane();
+        return true;
+    }
+
+    deleteSelectedLane();
+    return true;
+}
+
+bool MainComponent::performFocusedCodeUndo(const bool redo)
+{
+    for (auto* editor : { &transitionCodeEditor, &stateInspectorTransitionEditor, &laneScCodeEditor, &instrumentCodeEditor })
+    {
+        if (! editor->hasKeyboardFocus(true))
+            continue;
+
+        if (redo)
+            editor->redo();
+        else
+            editor->undo();
+
+        return true;
+    }
+
+    return false;
+}
+
+bool MainComponent::performFocusedTextUndo(const bool redo)
+{
+    auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    auto* editor = dynamic_cast<juce::TextEditor*>(focused);
+
+    if (editor == nullptr)
+        return false;
+
+    if (redo)
+        editor->redo();
+    else
+        editor->undo();
+
+    return true;
+}
+
+bool MainComponent::performFocusedCodeEdit(const EditAction action)
+{
+    for (auto* editor : { &transitionCodeEditor, &stateInspectorTransitionEditor, &laneScCodeEditor, &instrumentCodeEditor })
+    {
+        if (! editor->hasKeyboardFocus(true))
+            continue;
+
+        if (action == EditAction::cut)
+        {
+            editor->cutToClipboard();
+            return true;
+        }
+
+        if (action == EditAction::copy)
+        {
+            editor->copyToClipboard();
+            return true;
+        }
+
+        if (action == EditAction::paste)
+        {
+            editor->pasteFromClipboard();
+            return true;
+        }
+
+        if (action == EditAction::duplicate)
+        {
+            duplicateCodeEditorContent(*editor);
+            return true;
+        }
+
+        editor->deleteForwards(false);
+        return true;
+    }
+
+    return false;
+}
+
+bool MainComponent::performFocusedTextEdit(const EditAction action)
+{
+    auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    auto* editor = dynamic_cast<juce::TextEditor*>(focused);
+
+    if (editor == nullptr)
+        return false;
+
+    if (action == EditAction::cut)
+    {
+        editor->cutToClipboard();
+        return true;
+    }
+
+    if (action == EditAction::copy)
+    {
+        editor->copyToClipboard();
+        return true;
+    }
+
+    if (action == EditAction::paste)
+    {
+        editor->pasteFromClipboard();
+        return true;
+    }
+
+    if (action == EditAction::duplicate)
+    {
+        duplicateTextEditorContent(*editor);
+        return true;
+    }
+
+    editor->deleteForwards(false);
+    return true;
+}
+
+bool MainComponent::performFocusedCodeSelectAll()
+{
+    for (auto* editor : { &transitionCodeEditor, &stateInspectorTransitionEditor, &laneScCodeEditor, &instrumentCodeEditor })
+    {
+        if (! editor->hasKeyboardFocus(true))
+            continue;
+
+        editor->selectAll();
+        return true;
+    }
+
+    return false;
+}
+
+bool MainComponent::performFocusedTextSelectAll()
+{
+    auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    auto* editor = dynamic_cast<juce::TextEditor*>(focused);
+
+    if (editor == nullptr)
+        return false;
+
+    editor->selectAll();
+    return true;
+}
+
+bool MainComponent::duplicateCodeEditorContent(juce::CodeEditorComponent& editor)
+{
+    const auto selection = editor.getHighlightedRegion();
+
+    if (! selection.isEmpty())
+    {
+        const auto text = editor.getTextInRange(selection);
+        editor.setHighlightedRegion({ selection.getEnd(), selection.getEnd() });
+        editor.insertTextAtCaret(text);
+        editor.setHighlightedRegion({ selection.getEnd(), selection.getEnd() + text.length() });
+        return true;
+    }
+
+    auto& document = editor.getDocument();
+
+    if (document.getNumLines() <= 0)
+        return false;
+
+    const auto lineNumber = juce::jlimit(0, document.getNumLines() - 1, editor.getCaretPos().getLineNumber());
+    const auto lineText = document.getLine(lineNumber);
+    const auto duplicatedLine = lineText + document.getNewLineCharacters();
+    document.insertText(juce::CodeDocument::Position(document, lineNumber, 0), duplicatedLine);
+    editor.selectRegion(juce::CodeDocument::Position(document, lineNumber, 0),
+                        juce::CodeDocument::Position(document, lineNumber + 1, 0));
+    return true;
+}
+
+bool MainComponent::duplicateTextEditorContent(juce::TextEditor& editor)
+{
+    const auto selection = editor.getHighlightedRegion();
+
+    if (! selection.isEmpty())
+    {
+        const auto text = editor.getTextInRange(selection);
+        editor.setCaretPosition(selection.getEnd());
+        editor.insertTextAtCaret(text);
+        editor.setHighlightedRegion({ selection.getEnd(), selection.getEnd() + text.length() });
+        return true;
+    }
+
+    const auto text = editor.getText();
+
+    if (text.isEmpty())
+        return false;
+
+    const auto caret = juce::jlimit(0, text.length(), editor.getCaretPosition());
+    auto lineStart = caret;
+    auto lineEnd = caret;
+
+    while (lineStart > 0 && text[lineStart - 1] != '\n')
+        --lineStart;
+
+    while (lineEnd < text.length() && text[lineEnd] != '\n')
+        ++lineEnd;
+
+    const auto lineText = text.substring(lineStart, lineEnd);
+    editor.setCaretPosition(lineStart);
+    editor.insertTextAtCaret(lineText + "\n");
+    editor.setHighlightedRegion({ lineStart, lineStart + lineText.length() });
+    return true;
+}
+
+MainComponent::CompositionUndoState MainComponent::captureCompositionUndoState() const
+{
+    CompositionUndoState snapshot;
+    snapshot.states = compositionStates;
+    snapshot.activeState = activeStateIndex;
+    snapshot.activeLane = activeGridSlot;
+    return snapshot;
+}
+
+bool MainComponent::compositionUndoStatesEqual(const CompositionUndoState& first,
+                                               const CompositionUndoState& second) const
+{
+    const auto doublesDiffer = [] (const double left, const double right)
+    {
+        return std::abs(left - right) > 0.000001;
+    };
+
+    const auto floatsDiffer = [] (const float left, const float right)
+    {
+        return std::abs(left - right) > 0.00001f;
+    };
+
+    if (first.activeState != second.activeState
+        || first.activeLane != second.activeLane
+        || first.states.size() != second.states.size())
+        return false;
+
+    for (std::size_t stateIndex = 0; stateIndex < first.states.size(); ++stateIndex)
+    {
+        const auto& leftState = first.states[stateIndex];
+        const auto& rightState = second.states[stateIndex];
+
+        if (leftState.name != rightState.name
+            || doublesDiffer(leftState.bpm, rightState.bpm)
+            || leftState.advanceMode != rightState.advanceMode
+            || leftState.advanceInterval != rightState.advanceInterval
+            || leftState.timeSignatureNumerator != rightState.timeSignatureNumerator
+            || leftState.timeSignatureDenominator != rightState.timeSignatureDenominator
+            || leftState.transitionCode != rightState.transitionCode
+            || leftState.grids.size() != rightState.grids.size())
+            return false;
+
+        for (std::size_t laneIndex = 0; laneIndex < leftState.grids.size(); ++laneIndex)
+        {
+            const auto& leftLane = leftState.grids[laneIndex];
+            const auto& rightLane = rightState.grids[laneIndex];
+
+            if (leftLane.kind != rightLane.kind
+                || leftLane.snapshot.width != rightLane.snapshot.width
+                || leftLane.snapshot.height != rightLane.snapshot.height
+                || leftLane.snapshot.cells != rightLane.snapshot.cells
+                || leftLane.scCode != rightLane.scCode
+                || leftLane.scSynthName != rightLane.scSynthName
+                || leftLane.scCodeDirty != rightLane.scCodeDirty
+                || doublesDiffer(leftLane.tempoRatio, rightLane.tempoRatio)
+                || leftLane.phaseOffsetEnabled != rightLane.phaseOffsetEnabled
+                || doublesDiffer(leftLane.phaseOffsetDegrees, rightLane.phaseOffsetDegrees)
+                || floatsDiffer(leftLane.mixerLevel, rightLane.mixerLevel)
+                || floatsDiffer(leftLane.mixerPan, rightLane.mixerPan)
+                || leftLane.mixerMuted != rightLane.mixerMuted
+                || leftLane.mixerSoloed != rightLane.mixerSoloed
+                || leftLane.mixerOutputBus != rightLane.mixerOutputBus)
+                return false;
+        }
+    }
+
+    return true;
+}
+
+void MainComponent::pushCompositionUndoSnapshot()
+{
+    storeActiveLane();
+    storeActiveTransitionCode();
+    auto snapshot = captureCompositionUndoState();
+
+    if (! compositionUndoSnapshots.empty() && compositionUndoStatesEqual(compositionUndoSnapshots.back(), snapshot))
+        return;
+
+    compositionUndoSnapshots.push_back(std::move(snapshot));
+
+    if (compositionUndoSnapshots.size() > maximumCompositionUndoSnapshots)
+        compositionUndoSnapshots.erase(compositionUndoSnapshots.begin());
+
+    compositionRedoSnapshots.clear();
+}
+
+bool MainComponent::undoCompositionEdit()
+{
+    storeActiveLane();
+    storeActiveTransitionCode();
+    const auto current = captureCompositionUndoState();
+
+    while (! compositionUndoSnapshots.empty() && compositionUndoStatesEqual(compositionUndoSnapshots.back(), current))
+        compositionUndoSnapshots.pop_back();
+
+    if (compositionUndoSnapshots.empty())
+        return false;
+
+    compositionRedoSnapshots.push_back(current);
+    auto snapshot = std::move(compositionUndoSnapshots.back());
+    compositionUndoSnapshots.pop_back();
+    restoreCompositionUndoState(std::move(snapshot));
+    statusLog.append("Undo");
+    return true;
+}
+
+bool MainComponent::redoCompositionEdit()
+{
+    storeActiveLane();
+    storeActiveTransitionCode();
+    const auto current = captureCompositionUndoState();
+
+    while (! compositionRedoSnapshots.empty() && compositionUndoStatesEqual(compositionRedoSnapshots.back(), current))
+        compositionRedoSnapshots.pop_back();
+
+    if (compositionRedoSnapshots.empty())
+        return false;
+
+    compositionUndoSnapshots.push_back(current);
+    auto snapshot = std::move(compositionRedoSnapshots.back());
+    compositionRedoSnapshots.pop_back();
+    restoreCompositionUndoState(std::move(snapshot));
+    statusLog.append("Redo");
+    return true;
+}
+
+void MainComponent::restoreCompositionUndoState(CompositionUndoState snapshot)
+{
+    const auto wasPlaying = transportEngine.isPlaying();
+
+    if (wasPlaying)
+        transportEngine.pause();
+
+    double stateBpm = transportEngine.getBpm();
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        compositionStates = std::move(snapshot.states);
+
+        if (compositionStates.empty())
+        {
+            CompositionState state;
+            state.name = "State 01";
+            state.transitionCode = createDefaultTransitionCode(1);
+            state.grids.push_back({ makeEmptyGridSnapshot() });
+            compositionStates.push_back(std::move(state));
+        }
+
+        activeStateIndex = juce::jlimit(0, static_cast<int>(compositionStates.size()) - 1, snapshot.activeState);
+        auto& state = compositionStates[static_cast<std::size_t>(activeStateIndex)];
+
+        if (state.grids.empty())
+            state.grids.push_back({ makeEmptyGridSnapshot() });
+
+        activeGridSlot = juce::jlimit(0, static_cast<int>(state.grids.size()) - 1, snapshot.activeLane);
+        stateBpm = state.bpm;
+    }
+
+    transportEngine.setBpm(stateBpm);
+    transportEngine.reset();
+    lastTransportFrame = 0;
+    lastTickInBeat = 0;
+    resetGridRuntimeClocks();
+    gridEditor.clearPlayhead();
+    gridEditor.clearUndoHistory();
+    showActiveTransitionCode();
+    updateTransportControls();
+    updateGridSlotControls();
+    updateStateAdvanceControls();
+    refreshStateGraph();
+    refreshArrangementView();
+    refreshMixerView();
+
+    if (wasPlaying)
+        transportEngine.start();
+
+    repaint();
 }
 
 MainComponent::MainLayout MainComponent::calculateMainLayout() const
@@ -1695,7 +2375,36 @@ bool MainComponent::keyPressed(const juce::KeyPress& key, juce::Component* origi
 {
     const auto keyCode = key.getKeyCode();
     const auto shortcut = key.getModifiers().isCommandDown() || key.getModifiers().isCtrlDown();
+    const auto shortcutChar = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
     const auto stateGraphFocused = originatingComponent == &stateGraph || stateGraph.hasKeyboardFocus(true);
+
+    if (shortcut && shortcutChar == 'z')
+    {
+        if (key.getModifiers().isShiftDown())
+            performContextRedo();
+        else
+            performContextUndo();
+
+        return true;
+    }
+
+    if (shortcut && shortcutChar == 'y')
+    {
+        performContextRedo();
+        return true;
+    }
+
+    if (shortcut && shortcutChar == 'a')
+    {
+        performContextSelectAll();
+        return true;
+    }
+
+    if (shortcut && shortcutChar == 'd')
+    {
+        performContextEdit(EditAction::duplicate);
+        return true;
+    }
 
     if (stateGraphFocused)
     {
@@ -1704,8 +2413,6 @@ bool MainComponent::keyPressed(const juce::KeyPress& key, juce::Component* origi
             deleteSelectedState();
             return true;
         }
-
-        const auto shortcutChar = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
 
         if (shortcut && shortcutChar == 'c')
         {
@@ -4100,6 +4807,7 @@ static juce::String compactStateAdvanceModeText(const juce::String& text)
 void MainComponent::toggleSelectedStateAdvanceMode()
 {
     CompositionState::AdvanceMode mode = CompositionState::AdvanceMode::manual;
+    pushCompositionUndoSnapshot();
 
     {
         const std::lock_guard lock(gridRuntimeMutex);
@@ -4132,6 +4840,7 @@ void MainComponent::toggleSelectedStateAdvanceMode()
 void MainComponent::applyStateAdvanceEditor()
 {
     const auto interval = juce::jlimit(1, 999, stateAdvanceIntervalEditor.getText().getIntValue());
+    pushCompositionUndoSnapshot();
 
     {
         const std::lock_guard lock(gridRuntimeMutex);
@@ -4154,6 +4863,7 @@ void MainComponent::applyStateTimeSignatureEditors()
 {
     const auto numerator = juce::jlimit(1, 32, stateTimeSignatureNumeratorEditor.getText().getIntValue());
     const auto denominator = juce::jlimit(1, 32, stateTimeSignatureDenominatorEditor.getText().getIntValue());
+    pushCompositionUndoSnapshot();
 
     {
         const std::lock_guard lock(gridRuntimeMutex);
@@ -7179,6 +7889,7 @@ void MainComponent::updateGridSlotControls()
 void MainComponent::toggleSelectedLaneKind()
 {
     storeActiveGridSlot();
+    pushCompositionUndoSnapshot();
     bool isGrid = true;
 
     {
@@ -7228,6 +7939,7 @@ void MainComponent::applyGridSizeEditors()
     bool changed = false;
 
     storeActiveGridSlot();
+    pushCompositionUndoSnapshot();
 
     {
         const std::lock_guard lock(gridRuntimeMutex);
@@ -7344,7 +8056,10 @@ void MainComponent::showActiveLane()
             showGrid = lane.kind == CompositionGrid::Kind::grid;
 
             if (showGrid)
+            {
                 gridModel.applySnapshot(lane.snapshot);
+                gridEditor.clearUndoHistory();
+            }
             else
             {
                 if (lane.scCode.isEmpty())
@@ -7668,6 +8383,7 @@ void MainComponent::addCompositionState()
         transportEngine.pause();
 
     storeActiveGridSlot();
+    pushCompositionUndoSnapshot();
 
     {
         const std::lock_guard lock(gridRuntimeMutex);
@@ -7753,6 +8469,7 @@ void MainComponent::pasteCopiedState()
 
     storeActiveGridSlot();
     storeActiveTransitionCode();
+    pushCompositionUndoSnapshot();
 
     {
         const std::lock_guard lock(gridRuntimeMutex);
@@ -7816,6 +8533,7 @@ void MainComponent::deleteSelectedState()
 
     storeActiveGridSlot();
     storeActiveTransitionCode();
+    pushCompositionUndoSnapshot();
 
     int deletedState = activeStateIndex + 1;
     double stateBpm = transportEngine.getBpm();
@@ -7857,6 +8575,164 @@ void MainComponent::deleteSelectedState()
     refreshStateGraph();
     refreshArrangementView();
     statusLog.append("Deleted state " + juce::String(deletedState));
+    repaint();
+}
+
+void MainComponent::copySelectedLane()
+{
+    storeActiveLane();
+
+    int laneNumber = 0;
+    int laneCount = 0;
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        if (compositionStates.empty())
+            return;
+
+        activeStateIndex = juce::jlimit(0, static_cast<int>(compositionStates.size()) - 1, activeStateIndex);
+        auto& state = compositionStates[static_cast<std::size_t>(activeStateIndex)];
+
+        if (state.grids.empty())
+            state.grids.push_back({ makeEmptyGridSnapshot() });
+
+        activeGridSlot = juce::jlimit(0, static_cast<int>(state.grids.size()) - 1, activeGridSlot);
+        copiedLane = state.grids[static_cast<std::size_t>(activeGridSlot)];
+        laneNumber = activeGridSlot + 1;
+        laneCount = static_cast<int>(state.grids.size());
+    }
+
+    statusLog.append("Copied lane " + juce::String(laneNumber) + "/" + juce::String(laneCount));
+    repaint();
+}
+
+void MainComponent::pasteCopiedLane()
+{
+    if (! copiedLane.has_value())
+    {
+        statusLog.append("No copied lane");
+        repaint();
+        return;
+    }
+
+    const auto wasPlaying = transportEngine.isPlaying();
+
+    if (wasPlaying)
+        transportEngine.pause();
+
+    storeActiveLane();
+    pushCompositionUndoSnapshot();
+
+    int laneNumber = 0;
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        if (compositionStates.empty())
+            return;
+
+        activeStateIndex = juce::jlimit(0, static_cast<int>(compositionStates.size()) - 1, activeStateIndex);
+        auto& state = compositionStates[static_cast<std::size_t>(activeStateIndex)];
+
+        if (state.grids.empty())
+            state.grids.push_back({ makeEmptyGridSnapshot() });
+
+        if (state.grids.size() >= maximumGridsPerState)
+        {
+            statusLog.append("State already has 8 lanes");
+
+            if (wasPlaying)
+                transportEngine.start();
+
+            repaint();
+            return;
+        }
+
+        activeGridSlot = juce::jlimit(0, static_cast<int>(state.grids.size()) - 1, activeGridSlot);
+        auto lane = *copiedLane;
+
+        if (lane.snapshot.cells.empty())
+            lane.snapshot = makeEmptyGridSnapshot();
+
+        if (lane.kind == CompositionGrid::Kind::supercollider && lane.scCode.isEmpty())
+            lane.scCode = createDefaultScLaneCode(activeStateIndex + 1, activeGridSlot + 2);
+
+        const auto insertIndex = activeGridSlot + 1;
+        state.grids.insert(state.grids.begin() + insertIndex, std::move(lane));
+        activeGridSlot = insertIndex;
+        laneNumber = activeGridSlot + 1;
+    }
+
+    transportEngine.reset();
+    lastTransportFrame = 0;
+    lastTickInBeat = 0;
+    gridEditor.clearPlayhead();
+    resetGridRuntimeClocks();
+
+    if (wasPlaying)
+        transportEngine.start();
+
+    updateGridSlotControls();
+    statusLog.append("Pasted lane " + juce::String(laneNumber));
+    repaint();
+}
+
+void MainComponent::duplicateSelectedLane()
+{
+    copySelectedLane();
+    pasteCopiedLane();
+}
+
+void MainComponent::deleteSelectedLane()
+{
+    const auto wasPlaying = transportEngine.isPlaying();
+
+    if (wasPlaying)
+        transportEngine.pause();
+
+    storeActiveLane();
+    pushCompositionUndoSnapshot();
+
+    int deletedLane = activeGridSlot + 1;
+
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+
+        if (compositionStates.empty())
+            return;
+
+        activeStateIndex = juce::jlimit(0, static_cast<int>(compositionStates.size()) - 1, activeStateIndex);
+        auto& state = compositionStates[static_cast<std::size_t>(activeStateIndex)];
+
+        if (state.grids.size() <= 1)
+        {
+            statusLog.append("Cannot delete the only lane");
+
+            if (wasPlaying)
+                transportEngine.start();
+
+            repaint();
+            return;
+        }
+
+        activeGridSlot = juce::jlimit(0, static_cast<int>(state.grids.size()) - 1, activeGridSlot);
+        deletedLane = activeGridSlot + 1;
+        state.grids.erase(state.grids.begin() + activeGridSlot);
+        activeGridSlot = juce::jlimit(0, static_cast<int>(state.grids.size()) - 1, activeGridSlot);
+    }
+
+    transportEngine.reset();
+    lastTransportFrame = 0;
+    lastTickInBeat = 0;
+    gridEditor.clearPlayhead();
+    resetGridRuntimeClocks();
+
+    if (wasPlaying)
+        transportEngine.start();
+
+    updateGridSlotControls();
+    statusLog.append("Deleted lane " + juce::String(deletedLane));
     repaint();
 }
 
@@ -7944,6 +8820,7 @@ void MainComponent::addGridSlot()
         transportEngine.pause();
 
     storeActiveGridSlot();
+    pushCompositionUndoSnapshot();
 
     {
         const std::lock_guard lock(gridRuntimeMutex);
@@ -7992,6 +8869,7 @@ void MainComponent::applyGridTimingEditors()
                                     requestedRatio > 0.0 ? requestedRatio : 1.0);
     const auto requestedPhase = phaseOffsetEditor.getText().getDoubleValue();
     const auto phaseOffset = juce::jlimit(0.0, 360.0, requestedPhase);
+    pushCompositionUndoSnapshot();
 
     {
         const std::lock_guard lock(gridRuntimeMutex);
@@ -8016,6 +8894,7 @@ void MainComponent::applyGridTimingEditors()
 void MainComponent::toggleSelectedGridPhaseMode()
 {
     bool offsetEnabled = false;
+    pushCompositionUndoSnapshot();
 
     {
         const std::lock_guard lock(gridRuntimeMutex);
