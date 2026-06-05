@@ -22,6 +22,7 @@ constexpr juce::CommandID viewInstruments = 0x2103;
 constexpr juce::CommandID viewTransitions = 0x2104;
 constexpr juce::CommandID viewEventMonitor = 0x2105;
 constexpr juce::CommandID viewStateInspector = 0x2106;
+constexpr juce::CommandID viewAudioDiagnostics = 0x2107;
 }
 
 juce::String exampleMenuTitleFor(const juce::File& file)
@@ -41,7 +42,7 @@ class GridColliderApplication final : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override { return "GridCollider"; }
-    const juce::String getApplicationVersion() override { return "0.1.1"; }
+    const juce::String getApplicationVersion() override { return "0.1.2"; }
     bool moreThanOneInstanceAllowed() override { return true; }
 
     void initialise(const juce::String&) override
@@ -157,6 +158,7 @@ private:
                 menu.addSectionHeader("Inspect");
                 menu.addCommandItem(&commandManager, CommandIDs::viewEventMonitor);
                 menu.addCommandItem(&commandManager, CommandIDs::viewStateInspector);
+                menu.addCommandItem(&commandManager, CommandIDs::viewAudioDiagnostics);
             }
             else if (menuIndex == 3)
             {
@@ -187,7 +189,7 @@ private:
             {
                 auto* app = juce::JUCEApplication::getInstance();
                 const auto name = app != nullptr ? app->getApplicationName() : juce::String("GridCollider");
-                const auto version = app != nullptr ? app->getApplicationVersion() : juce::String("0.1.1");
+                const auto version = app != nullptr ? app->getApplicationVersion() : juce::String("0.1.2");
 
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
                                                        "About " + name,
@@ -237,7 +239,8 @@ private:
                                 CommandIDs::viewInstruments,
                                 CommandIDs::viewTransitions,
                                 CommandIDs::viewEventMonitor,
-                                CommandIDs::viewStateInspector });
+                                CommandIDs::viewStateInspector,
+                                CommandIDs::viewAudioDiagnostics });
         }
 
         void getCommandInfo(const juce::CommandID commandID, juce::ApplicationCommandInfo& result) override
@@ -249,13 +252,15 @@ private:
             const auto transitionsVisible = mainComponent != nullptr && mainComponent->isTransitionsViewVisible();
             const auto eventMonitorVisible = mainComponent != nullptr && mainComponent->isEventMonitorViewVisible();
             const auto stateInspectorVisible = mainComponent != nullptr && mainComponent->isStateInspectorViewVisible();
+            const auto audioDiagnosticsVisible = mainComponent != nullptr && mainComponent->isAudioDiagnosticsViewVisible();
             const auto mainVisible = mainComponent != nullptr
                                   && ! mixerVisible
                                   && ! arrangementVisible
                                   && ! instrumentsVisible
                                   && ! transitionsVisible
                                   && ! eventMonitorVisible
-                                  && ! stateInspectorVisible;
+                                  && ! stateInspectorVisible
+                                  && ! audioDiagnosticsVisible;
 
             switch (commandID)
             {
@@ -356,6 +361,13 @@ private:
                     result.setTicked(stateInspectorVisible);
                     break;
 
+                case CommandIDs::viewAudioDiagnostics:
+                    result.setInfo("Audio Diagnostics", "Show audio, SuperCollider, plugin, bus, and channel activity", "View", 0);
+                    result.addDefaultKeypress('8', juce::ModifierKeys::commandModifier);
+                    result.setActive(mainComponent != nullptr);
+                    result.setTicked(audioDiagnosticsVisible);
+                    break;
+
                 default:
                     break;
             }
@@ -383,6 +395,7 @@ private:
                 case CommandIDs::viewTransitions: mainComponent->menuToggleTransitionsView(); break;
                 case CommandIDs::viewEventMonitor: mainComponent->menuToggleEventMonitorView(); break;
                 case CommandIDs::viewStateInspector: mainComponent->menuToggleStateInspectorView(); break;
+                case CommandIDs::viewAudioDiagnostics: mainComponent->menuToggleAudioDiagnosticsView(); break;
                 default: return false;
             }
 

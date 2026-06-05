@@ -785,6 +785,7 @@ MainComponent::MainComponent()
     configurePatternControls();
     configureTransitionCodePane();
     configureEventMonitor();
+    configureAudioDiagnosticsView();
     configureStateInspectorView();
     configureTransportControls();
     configureStateGraph();
@@ -953,6 +954,7 @@ void MainComponent::menuShowMainView()
     transitionsViewVisible = false;
     eventMonitorViewVisible = false;
     stateInspectorViewVisible = false;
+    audioDiagnosticsViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     showActiveLane();
@@ -968,6 +970,7 @@ void MainComponent::menuToggleMixerView()
     transitionsViewVisible = false;
     eventMonitorViewVisible = false;
     stateInspectorViewVisible = false;
+    audioDiagnosticsViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     refreshMixerView();
@@ -983,6 +986,7 @@ void MainComponent::menuToggleArrangementView()
     transitionsViewVisible = false;
     eventMonitorViewVisible = false;
     stateInspectorViewVisible = false;
+    audioDiagnosticsViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     refreshArrangementView();
@@ -998,6 +1002,7 @@ void MainComponent::menuToggleInstrumentsView()
     transitionsViewVisible = false;
     eventMonitorViewVisible = false;
     stateInspectorViewVisible = false;
+    audioDiagnosticsViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     refreshInstrumentView();
@@ -1013,6 +1018,7 @@ void MainComponent::menuToggleTransitionsView()
     instrumentsViewVisible = false;
     eventMonitorViewVisible = false;
     stateInspectorViewVisible = false;
+    audioDiagnosticsViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     resized();
@@ -1028,6 +1034,7 @@ void MainComponent::menuToggleEventMonitorView()
     instrumentsViewVisible = false;
     transitionsViewVisible = false;
     stateInspectorViewVisible = false;
+    audioDiagnosticsViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     refreshEventMonitor();
@@ -1044,9 +1051,26 @@ void MainComponent::menuToggleStateInspectorView()
     instrumentsViewVisible = false;
     transitionsViewVisible = false;
     eventMonitorViewVisible = false;
+    audioDiagnosticsViewVisible = false;
     activeSplitterDrag = SplitterDrag::none;
     setMouseCursor(juce::MouseCursor::NormalCursor);
     refreshStateInspectorView();
+    resized();
+    repaint();
+}
+
+void MainComponent::menuToggleAudioDiagnosticsView()
+{
+    audioDiagnosticsViewVisible = true;
+    mixerViewVisible = false;
+    arrangementViewVisible = false;
+    instrumentsViewVisible = false;
+    transitionsViewVisible = false;
+    eventMonitorViewVisible = false;
+    stateInspectorViewVisible = false;
+    activeSplitterDrag = SplitterDrag::none;
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+    refreshAudioDiagnosticsView();
     resized();
     repaint();
 }
@@ -1084,6 +1108,11 @@ bool MainComponent::isEventMonitorViewVisible() const noexcept
 bool MainComponent::isStateInspectorViewVisible() const noexcept
 {
     return stateInspectorViewVisible;
+}
+
+bool MainComponent::isAudioDiagnosticsViewVisible() const noexcept
+{
+    return audioDiagnosticsViewVisible;
 }
 
 bool MainComponent::performContextSelectAll()
@@ -1736,7 +1765,7 @@ MainComponent::MainLayout MainComponent::calculateMainLayout() const
 MainComponent::SplitterDrag MainComponent::splitterAt(const juce::Point<int> position) const
 {
     const auto layout = calculateMainLayout();
-    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible || transitionsViewVisible || eventMonitorViewVisible || stateInspectorViewVisible;
+    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible || transitionsViewVisible || eventMonitorViewVisible || stateInspectorViewVisible || audioDiagnosticsViewVisible;
 
     if (optionalWorkspaceVisible)
         return SplitterDrag::none;
@@ -1772,7 +1801,7 @@ void MainComponent::paint(juce::Graphics& graphics)
 
     const auto layout = calculateMainLayout();
     auto header = layout.header;
-    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible || transitionsViewVisible || eventMonitorViewVisible || stateInspectorViewVisible;
+    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible || transitionsViewVisible || eventMonitorViewVisible || stateInspectorViewVisible || audioDiagnosticsViewVisible;
 
     graphics.setColour(lewittPanel());
     graphics.fillRoundedRectangle(layout.header.toFloat(), panelRadius);
@@ -1885,7 +1914,7 @@ void MainComponent::resized()
     const auto layout = calculateMainLayout();
     auto header = layout.header;
     auto transitionArea = layout.transitionPane;
-    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible || transitionsViewVisible || eventMonitorViewVisible || stateInspectorViewVisible;
+    const auto optionalWorkspaceVisible = mixerViewVisible || arrangementViewVisible || instrumentsViewVisible || transitionsViewVisible || eventMonitorViewVisible || stateInspectorViewVisible || audioDiagnosticsViewVisible;
 
     auto lowerWorkspace = getLocalBounds().reduced(outerMargin);
     lowerWorkspace.removeFromTop(optionalWorkspaceVisible
@@ -1893,6 +1922,8 @@ void MainComponent::resized()
                                      : headerHeight + headerToTransitionGap + layout.transitionPane.getHeight() + transitionSplitterThickness);
     stateInspectorView.setVisible(false);
     mixerMasterContent.setVisible(false);
+    audioDiagnosticsLabel.setVisible(false);
+    audioDiagnostics.setVisible(false);
 
     if (mixerViewVisible)
     {
@@ -2094,6 +2125,34 @@ void MainComponent::resized()
         monitorArea.removeFromTop(10);
         eventMonitor.setBounds(monitorArea);
         eventMonitor.toFront(false);
+    }
+    else if (audioDiagnosticsViewVisible)
+    {
+        auto diagnosticsArea = lowerWorkspace.reduced(24);
+
+        instrumentView.setVisible(false);
+        instrumentCodeEditor.setVisible(false);
+        stateGraph.setVisible(false);
+        transitionCodeLabel.setVisible(false);
+        transitionCodeBackdrop.setVisible(false);
+        transitionCodeEditor.setVisible(false);
+        mixerViewport.setVisible(false);
+        arrangementViewport.setVisible(false);
+        gridEditor.setVisible(false);
+        laneCodeBackdrop.setVisible(false);
+        laneScCodeEditor.setVisible(false);
+        eventMonitorLabel.setVisible(false);
+        eventMonitor.setVisible(false);
+        for (auto& button : gridTabButtons)
+            button.setVisible(false);
+
+        refreshAudioDiagnosticsView();
+        audioDiagnosticsLabel.setVisible(true);
+        audioDiagnostics.setVisible(true);
+        audioDiagnosticsLabel.setBounds(diagnosticsArea.removeFromTop(28));
+        diagnosticsArea.removeFromTop(10);
+        audioDiagnostics.setBounds(diagnosticsArea);
+        audioDiagnostics.toFront(false);
     }
     else if (stateInspectorViewVisible)
     {
@@ -2570,6 +2629,9 @@ void MainComponent::timerCallback()
 
     if (instrumentsViewVisible)
         refreshAudioReadinessStatus();
+
+    if (audioDiagnosticsViewVisible)
+        refreshAudioDiagnosticsView();
 
     if (exportCaptureComplete.exchange(false, std::memory_order_acq_rel))
         finishRealtimeWavExport();
@@ -4182,6 +4244,116 @@ void MainComponent::refreshEventMonitor()
                                   + juce::String(activeGridSlot + 1).paddedLeft('0', 2),
                               juce::dontSendNotification);
     eventMonitor.setLines(lines);
+}
+
+void MainComponent::configureAudioDiagnosticsView()
+{
+    addAndMakeVisible(audioDiagnosticsLabel);
+    addAndMakeVisible(audioDiagnostics);
+
+    audioDiagnosticsLabel.setText("AUDIO DIAGNOSTICS", juce::dontSendNotification);
+    audioDiagnosticsLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold));
+    audioDiagnosticsLabel.setJustificationType(juce::Justification::centredLeft);
+    audioDiagnosticsLabel.setColour(juce::Label::textColourId, lewittInk());
+    audioDiagnostics.setInterceptsMouseClicks(true, true);
+    audioDiagnosticsLabel.setVisible(false);
+    audioDiagnostics.setVisible(false);
+}
+
+void MainComponent::refreshAudioDiagnosticsView()
+{
+    juce::StringArray lines;
+    lines.add("AUDIO");
+    lines.add("  " + getAudioDeviceStatusText());
+    lines.add("  callbacks: " + juce::String(static_cast<juce::int64>(audioCallbackCounter.load(std::memory_order_relaxed)))
+              + "  samples: " + juce::String(static_cast<juce::int64>(audioSampleCounter.load(std::memory_order_relaxed)))
+              + "  master peak: " + juce::String(mixerMeterDisplay[static_cast<std::size_t>(masterMeterIndex)], 3));
+    lines.add("  transport: " + juce::String(transportEngine.isPlaying() ? "playing" : "stopped")
+              + "  bpm: " + juce::String(transportEngine.getBpm(), 1)
+              + "  frame: " + juce::String(static_cast<juce::int64>(lastTransportFrame)));
+    lines.add("");
+    lines.add("SUPERCOLLIDER");
+    lines.add("  state: " + juce::String(embeddedScAudio.isReady() ? "ready" : "not ready"));
+    lines.add("  detail: " + (embeddedScAudio.isReady() ? embeddedScAudio.getStatusText() : embeddedScAudio.getLastError()));
+    lines.add("");
+    lines.add("PLUGINS");
+    lines.add("  known effects: " + juce::String(knownPluginList.getNumTypes())
+              + "  failed scans: " + juce::String(knownPluginList.getBlacklistedFiles().size()));
+
+    int loadedSlots = 0;
+    int failedSlots = 0;
+    int bypassedSlots = 0;
+    {
+        const juce::ScopedLock lock(mixerPluginLock);
+        for (const auto& channelSlots : mixerPluginSlots)
+            for (const auto& slot : channelSlots)
+            {
+                loadedSlots += slot.instance != nullptr ? 1 : 0;
+                failedSlots += slot.failed ? 1 : 0;
+                bypassedSlots += slot.bypassed ? 1 : 0;
+            }
+    }
+    lines.add("  inserts loaded: " + juce::String(loadedSlots)
+              + "  bypassed: " + juce::String(bypassedSlots)
+              + "  failed: " + juce::String(failedSlots));
+    lines.add("");
+    lines.add("BUSES");
+    for (int busIndex = 0; busIndex < mixerBusCount; ++busIndex)
+    {
+        const auto mixerIndex = firstBusMeterIndex + busIndex;
+        const auto& bus = mixerBuses[static_cast<std::size_t>(busIndex)];
+        lines.add("  bus " + juce::String(busIndex + 1)
+                  + "  level " + juce::String(bus.level, 2)
+                  + "  pan " + juce::String(bus.pan, 2)
+                  + "  peak " + juce::String(mixerMeterDisplay[static_cast<std::size_t>(mixerIndex)], 3)
+                  + (bus.muted ? "  muted" : "")
+                  + (bus.soloed ? "  solo" : ""));
+    }
+    lines.add("");
+    lines.add("ACTIVE CHANNELS");
+
+    int visibleChannels = 0;
+    {
+        const std::lock_guard lock(gridRuntimeMutex);
+        for (int stateIndex = 0; stateIndex < static_cast<int>(compositionStates.size()); ++stateIndex)
+        {
+            const auto& state = compositionStates[static_cast<std::size_t>(stateIndex)];
+            for (int laneIndex = 0; laneIndex < static_cast<int>(state.grids.size()); ++laneIndex)
+            {
+                const auto mixerIndex = stateIndex * maximumGridsPerState + laneIndex;
+                if (mixerIndex < 0 || mixerIndex >= firstBusMeterIndex)
+                    continue;
+
+                const auto& lane = state.grids[static_cast<std::size_t>(laneIndex)];
+                const auto peak = mixerMeterDisplay[static_cast<std::size_t>(mixerIndex)];
+                if (peak < 0.001f && ! lane.mixerMuted && ! lane.mixerSoloed)
+                    continue;
+
+                ++visibleChannels;
+                lines.add("  S" + juce::String(stateIndex + 1).paddedLeft('0', 2)
+                          + " L" + juce::String(laneIndex + 1).paddedLeft('0', 2)
+                          + "  " + juce::String(lane.kind == CompositionGrid::Kind::grid ? "grid" : "sc")
+                          + "  peak " + juce::String(peak, 3)
+                          + "  level " + juce::String(lane.mixerLevel, 2)
+                          + "  pan " + juce::String(lane.mixerPan, 2)
+                          + "  out " + (lane.mixerOutputBus == 0 ? juce::String("master") : "bus " + juce::String(lane.mixerOutputBus))
+                          + (lane.mixerMuted ? "  muted" : "")
+                          + (lane.mixerSoloed ? "  solo" : ""));
+            }
+        }
+    }
+
+    if (visibleChannels == 0)
+        lines.add("  no active lane peaks yet");
+
+    audioDiagnosticsLabel.setText("AUDIO DIAGNOSTICS    "
+                                      + juce::String(lines.size())
+                                      + " rows    plugins "
+                                      + juce::String(knownPluginList.getNumTypes())
+                                      + "    sc "
+                                      + juce::String(embeddedScAudio.isReady() ? "ready" : "offline"),
+                                  juce::dontSendNotification);
+    audioDiagnostics.setLines(lines);
 }
 
 void MainComponent::configureStateInspectorView()

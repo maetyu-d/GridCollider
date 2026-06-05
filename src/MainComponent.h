@@ -61,6 +61,7 @@ public:
     void menuToggleTransitionsView();
     void menuToggleEventMonitorView();
     void menuToggleStateInspectorView();
+    void menuToggleAudioDiagnosticsView();
     void menuLoadExample(const juce::File& file);
     [[nodiscard]] bool isMixerViewVisible() const noexcept;
     [[nodiscard]] bool isArrangementViewVisible() const noexcept;
@@ -68,6 +69,7 @@ public:
     [[nodiscard]] bool isTransitionsViewVisible() const noexcept;
     [[nodiscard]] bool isEventMonitorViewVisible() const noexcept;
     [[nodiscard]] bool isStateInspectorViewVisible() const noexcept;
+    [[nodiscard]] bool isAudioDiagnosticsViewVisible() const noexcept;
 
     void paint(juce::Graphics& graphics) override;
     void resized() override;
@@ -838,6 +840,8 @@ private:
     void configureEventMonitor();
     void appendEventMonitorLine(const LogEvent& event);
     void refreshEventMonitor();
+    void configureAudioDiagnosticsView();
+    void refreshAudioDiagnosticsView();
     void configureStateInspectorView();
     void styleStateInspectorView();
     void refreshStateInspectorView();
@@ -1151,6 +1155,8 @@ private:
     SourceCodeBackdropComponent transitionCodeBackdrop;
     EventMonitorComponent eventMonitor;
     juce::Label eventMonitorLabel;
+    EventMonitorComponent audioDiagnostics;
+    juce::Label audioDiagnosticsLabel;
     juce::Component stateInspectorView;
     juce::Label stateInspectorTitleLabel;
     juce::Label stateInspectorMetaLabel;
@@ -1329,6 +1335,7 @@ private:
     bool transitionsViewVisible = false;
     bool eventMonitorViewVisible = false;
     bool stateInspectorViewVisible = false;
+    bool audioDiagnosticsViewVisible = false;
     bool updatingStateInspectorView = false;
     std::uint64_t uiFrameCounter = 0;
     double lastTimerCallbackMs = 0.0;

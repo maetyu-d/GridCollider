@@ -28,6 +28,16 @@ cmake --build build --config Debug
 
 CMake fetches JUCE automatically. On Linux, install the normal JUCE desktop build dependencies for your distribution before configuring.
 
+## Release
+
+On macOS, build, zip, tag, and upload a GitHub Release asset with:
+
+```sh
+scripts/release_macos.sh
+```
+
+The script reads the project version from `CMakeLists.txt`, writes `dist/GridCollider-<version>-macOS.zip`, pushes the current branch, creates/pushes `v<version>`, and creates or updates the GitHub Release asset. Use `--no-push` to build and zip locally without tagging or uploading.
+
 ## Composition Controls
 
 - The upper view is a finite-state composition map. A composition can hold up to 16 states.
