@@ -42,7 +42,7 @@ class GridColliderApplication final : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override { return "GridCollider"; }
-    const juce::String getApplicationVersion() override { return "0.1.4"; }
+    const juce::String getApplicationVersion() override { return "0.1.5"; }
     bool moreThanOneInstanceAllowed() override { return true; }
 
     void initialise(const juce::String&) override
@@ -189,7 +189,7 @@ private:
             {
                 auto* app = juce::JUCEApplication::getInstance();
                 const auto name = app != nullptr ? app->getApplicationName() : juce::String("GridCollider");
-                const auto version = app != nullptr ? app->getApplicationVersion() : juce::String("0.1.4");
+                const auto version = app != nullptr ? app->getApplicationVersion() : juce::String("0.1.5");
 
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
                                                        "About " + name,
