@@ -85,6 +85,9 @@ fi
 echo "Configuring Release build..."
 cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release
 
+echo "Removing stale release app bundle..."
+rm -rf "$APP_PATH"
+
 echo "Building GridCollider ${VERSION}..."
 cmake --build build-release --config Release
 
