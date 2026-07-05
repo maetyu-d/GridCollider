@@ -3822,14 +3822,18 @@ void MainComponent::loadCompositionFile(const juce::File& file)
     if (result.wasOk())
     {
         currentCompositionFile = file;
+        compositionUndoSnapshots.clear();
+        compositionRedoSnapshots.clear();
         transportEngine.reset();
         lastTransportFrame = 0;
         lastTickInBeat = 0;
         activeStateEntryFrame = 0;
         resetGridRuntimeClocks();
+        syncMixerRuntimeState();
         embeddedScAudio.setMasterLevel(masterLevel);
         updateTransportControls();
         updateGridSlotControls();
+        updateStateAdvanceControls();
         showActiveTransitionCode();
         compileEditableDefaultSynthDefs();
         compileUserInstruments();
@@ -3837,6 +3841,8 @@ void MainComponent::loadCompositionFile(const juce::File& file)
         applyChannelMappingsToEngine();
         refreshInstrumentView();
         refreshMixerView();
+        refreshStateGraph();
+        refreshArrangementView();
         gridEditor.fitToView();
         statusLog.append("Loaded composition: " + file.getFileName());
         addRecentPatternFile(file);
@@ -3947,12 +3953,41 @@ void MainComponent::loadPatternFile(const juce::File& file, const bool addToRece
     {
         const std::lock_guard lock(gridRuntimeMutex);
         result = presetManager.load(file, gridModel);
+
+        if (result.wasOk())
+        {
+            CompositionGrid lane;
+            lane.snapshot = gridModel.createSnapshot();
+
+            CompositionState state;
+            state.name = "State 01";
+            state.bpm = transportEngine.getBpm();
+            state.transitionCode = createDefaultTransitionCode(1);
+            state.grids.push_back(std::move(lane));
+
+            compositionStates.clear();
+            compositionStates.push_back(std::move(state));
+            activeStateIndex = 0;
+            activeGridSlot = 0;
+            activeStateEntryFrame = 0;
+        }
     }
 
     if (result.wasOk())
     {
+        compositionUndoSnapshots.clear();
+        compositionRedoSnapshots.clear();
+        currentCompositionFile = juce::File();
+        syncMixerRuntimeState();
+        resetGridRuntimeClocks();
         storeActiveGridSlot();
         updateGridSlotControls();
+        updateStateAdvanceControls();
+        showActiveTransitionCode();
+        refreshStateGraph();
+        refreshArrangementView();
+        refreshMixerView();
+        refreshInstrumentView();
         gridEditor.fitToView();
         statusLog.append("Loaded pattern: " + file.getFileName());
 
